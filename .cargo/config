@@ -1,0 +1,9 @@
+[target.thumbv7m-none-eabi]
+runner = 'echo "TODO: can not use gdb: no JTAG/SWD on this board'
+
+rustflags = [
+  "-C", "link-arg=-Tlink.x",
+]
+
+[build]
+target = "thumbv7m-none-eabi"

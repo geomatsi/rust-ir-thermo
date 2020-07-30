@@ -1,0 +1,19 @@
+[package]
+name = "rust-ir-thermo"
+version = "0.1.0"
+authors = ["Sergey Matyukevich <geomatsi@gmail.com>"]
+edition = "2018"
+
+autobins = false
+autotests = false
+autoexamples = false
+
+[dependencies]
+stm32l1xx-hal = "0.1.0"
+embedded-hal = "0.2.4"
+cortex-m-rt = "0.6.12"
+cortex-m = "0.6.3"
+
+[[example]]
+name = "test-led"
+path = "examples/test_led.rs"
