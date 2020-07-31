@@ -17,3 +17,7 @@ cortex-m = "0.6.3"
 [[example]]
 name = "test-led"
 path = "examples/test_led.rs"
+
+[[example]]
+name = "test-uart"
+path = "examples/test_uart.rs"
