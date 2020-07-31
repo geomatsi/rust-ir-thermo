@@ -1,0 +1,58 @@
+#!/bin/bash
+
+PORT=/dev/ttyUSB0
+RATE=115200
+ADDR=0x8000000
+TYPE=ihex
+
+ELF_TARGET=$1
+shift
+
+function usage()
+{
+cat <<HELP
+Examples:
+$ cargo run --example test-led
+$ cargo run --release --example test-led
+$ cargo run --example test-led -- -p /dev/ttyUSB1 -r 9600
+$ cargo run --example test-led -- -t bin
+
+Supported additional options:
+Options:
+  -t, --type          bin or ihex, default is ihex
+  -p, --port          serial port, default is /dev/ttyUSB0
+  -r, --rate          serial port baud rate, default is 115200
+HELP
+}
+
+while [ $# -gt 0 ]
+do
+	key="$1"
+
+	case $key in
+		-t|--type)
+			TYPE="$2"
+			shift # past argument
+			shift # past value
+			;;
+		-p|--port)
+			PORT="$2"
+			shift # past argument
+			shift # past value
+			;;
+		-r|--rate)
+			RATE="$2"
+			shift # past argument
+			shift # past value
+			;;
+		*)    # unknown option
+			usage
+			exit 1
+			;;
+	esac
+done
+
+NEW_TARGET=$ELF_TARGET.$TYPE
+
+cargo objcopy  -- $ELF_TARGET -O $TYPE $NEW_TARGET
+sudo stm32flash -b $RATE -w $NEW_TARGET -v -g $ADDR $PORT
