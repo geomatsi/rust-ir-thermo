@@ -36,9 +36,5 @@ name = "test-i2c-at24"
 path = "examples/test_i2c_at24.rs"
 
 [[example]]
-name = "test-i2cbb-at24"
-path = "examples/test_i2cbb_at24.rs"
-
-[[example]]
-name = "test-i2cbb-temp"
-path = "examples/test_i2cbb_temp.rs"
+name = "test-i2c-mlx90614"
+path = "examples/test_i2c_mlx90614.rs"

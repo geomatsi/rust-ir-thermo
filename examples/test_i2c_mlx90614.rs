@@ -39,16 +39,20 @@ fn main() -> ! {
     let serial = dp.USART1.usart((tx, rx), cfg, &mut rcc).unwrap();
     let (mut tx, _) = serial.split();
 
-    // init bitbang i2c and temperature sensor
+    // init gpio for i2c
     let gpiob = dp.GPIOB.split();
     let scl = gpiob.pb8.into_open_drain_output();
     let sda = gpiob.pb9.into_open_drain_output();
+
+    // init i2c: h/w (mcu) or s/w (bitbang)
     let i2c = dp.I2C1.i2c((scl, sda), 100.khz(), &mut rcc);
     //let tmr = dp.TIM2.timer(200.khz(), &mut rcc);
     //let i2c = bitbang_hal::i2c::I2cBB::new(scl, sda, tmr);
+
+    // init temperature sensor
     let mut temp = Mlx9061x::new_mlx90614(i2c, SlaveAddr::default(), 5).unwrap();
 
-    // EN for MLX sensor
+    // EN gpio for MLX sensor
     let mut en = gpioa.pa14.into_push_pull_output();
     en.set_low().unwrap();
 

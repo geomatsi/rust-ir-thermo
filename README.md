@@ -27,3 +27,9 @@ Options:
   -p, --port          serial port, default is /dev/ttyUSB0
   -r, --rate          serial port baud rate, default is 115200
 ```
+
+# TODO
+
+* add feature to Cargo.toml to switch between ```h/w``` i2c and ```s/w bitbang``` i2c
+* investigate why AT24 EEPROM does not work with ```h/w i2c``` (data always 0xFF)
+* investigate why MLX90614 sensor does not work with ```s/w bitbang i2c``` (data always 0xFF)

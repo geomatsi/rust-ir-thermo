@@ -3,6 +3,7 @@
 #![no_main]
 #![no_std]
 
+//use bitbang_hal;
 use cortex_m as cm;
 use cortex_m_rt as rt;
 use eeprom24x;
@@ -25,16 +26,6 @@ fn main() -> ! {
     let dp = stm32::Peripherals::take().unwrap();
     let mut rcc = dp.RCC.freeze(Config::hsi());
 
-    // init h/w i2c and eeprom
-    let gpiob = dp.GPIOB.split();
-    let scl = gpiob.pb8.into_open_drain_output();
-    let sda = gpiob.pb9.into_open_drain_output();
-    let i2c = dp.I2C1.i2c((scl, sda), 1.khz(), &mut rcc);
-    let mut eeprom = Eeprom24x::new_24xm01(i2c, SlaveAddr::default());
-
-    // init eeprom write-protect gpio
-    let mut wp = gpiob.pb5.into_push_pull_output();
-
     // init serial output
     let gpioa = dp.GPIOA.split();
     let tx = gpioa.pa9;
@@ -48,6 +39,22 @@ fn main() -> ! {
 
     let serial = dp.USART1.usart((tx, rx), cfg, &mut rcc).unwrap();
     let (mut tx, _) = serial.split();
+
+    // init gpio for i2c
+    let gpiob = dp.GPIOB.split();
+    let scl = gpiob.pb8.into_open_drain_output();
+    let sda = gpiob.pb9.into_open_drain_output();
+
+    // init i2c: h/w (mcu) or s/w (bitbang)
+    let i2c = dp.I2C1.i2c((scl, sda), 1.khz(), &mut rcc);
+    //let tmr = dp.TIM2.timer(200.khz(), &mut rcc);
+    //let i2c = bitbang_hal::i2c::I2cBB::new(scl, sda, tmr);
+
+    // init eeprom24x
+    let mut eeprom = Eeprom24x::new_24xm01(i2c, SlaveAddr::default());
+
+    // write-protect gpio for EEPROM
+    let mut wp = gpiob.pb5.into_push_pull_output();
 
     loop {
         wp.set_high().unwrap();
