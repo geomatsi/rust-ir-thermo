@@ -36,6 +36,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bitbang-hal"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "470e1522d257e4c76245980d27d5d279442cb18955cc6341249b904074033f4a"
+dependencies = [
+ "embedded-hal",
+ "nb 0.1.3",
+]
+
+[[package]]
 name = "bitfield"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -96,6 +106,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "eeprom24x"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f680e8d81a559a97de04c5fab25f17f22a55770120c868ef8fbdea6398d44107"
+dependencies = [
+ "embedded-hal",
+]
+
+[[package]]
 name = "embedded-hal"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -121,6 +140,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ed1e761351b56f54eb9dcd0cfaca9fd0daecf93918e1cfc01c8a3d26ee7adcd"
 dependencies = [
  "typenum",
+]
+
+[[package]]
+name = "mlx9061x"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c60b36538bb9b85308ff5220fdabce602553534ac6434aad4e344bbd23348813"
+dependencies = [
+ "embedded-hal",
 ]
 
 [[package]]
@@ -166,9 +194,12 @@ checksum = "e2a38df5b15c8d5c7e8654189744d8e396bddc18ad48041a500ce52d6948941f"
 name = "rust-ir-thermo"
 version = "0.1.0"
 dependencies = [
+ "bitbang-hal",
  "cortex-m 0.6.3",
  "cortex-m-rt",
+ "eeprom24x",
  "embedded-hal",
+ "mlx9061x",
  "stm32l1xx-hal",
 ]
 
@@ -217,8 +248,6 @@ dependencies = [
 [[package]]
 name = "stm32l1xx-hal"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4dc5ad008615fe51a3f7752468f83d1d1d5d80e1b32520be690bf4fad64e7aa4"
 dependencies = [
  "bare-metal",
  "cast",

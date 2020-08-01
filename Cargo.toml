@@ -9,10 +9,16 @@ autotests = false
 autoexamples = false
 
 [dependencies]
-stm32l1xx-hal = "0.1.0"
+#stm32l1xx-hal = "0.1.0"
 embedded-hal = "0.2.4"
 cortex-m-rt = "0.6.12"
 cortex-m = "0.6.3"
+bitbang-hal = "0.3.2"
+mlx9061x = "0.1.0"
+eeprom24x = "0.3.0"
+
+[dependencies.stm32l1xx-hal]
+path = "/home/matsi/devel/code/zzz-dev-rust/stm32l1xx-hal"
 
 [[example]]
 name = "test-led"
@@ -21,3 +27,11 @@ path = "examples/test_led.rs"
 [[example]]
 name = "test-uart"
 path = "examples/test_uart.rs"
+
+[[example]]
+name = "test-i2c-at24"
+path = "examples/test_i2c_at24.rs"
+
+[[example]]
+name = "test-i2cbb-at24"
+path = "examples/test_i2cbb_at24.rs"
