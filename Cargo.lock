@@ -145,8 +145,6 @@ dependencies = [
 [[package]]
 name = "mlx9061x"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c60b36538bb9b85308ff5220fdabce602553534ac6434aad4e344bbd23348813"
 dependencies = [
  "embedded-hal",
 ]
