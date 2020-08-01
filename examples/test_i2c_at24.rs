@@ -46,7 +46,7 @@ fn main() -> ! {
     let sda = gpiob.pb9.into_open_drain_output();
 
     // init i2c: h/w (mcu) or s/w (bitbang)
-    let i2c = dp.I2C1.i2c((scl, sda), 1.khz(), &mut rcc);
+    let i2c = dp.I2C1.i2c((scl, sda), 100.khz(), &mut rcc);
     //let tmr = dp.TIM2.timer(200.khz(), &mut rcc);
     //let i2c = bitbang_hal::i2c::I2cBB::new(scl, sda, tmr);
 

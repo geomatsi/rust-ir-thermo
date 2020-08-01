@@ -31,5 +31,5 @@ Options:
 # TODO
 
 * add feature to Cargo.toml to switch between ```h/w``` i2c and ```s/w bitbang``` i2c
-* investigate why AT24 EEPROM does not work with ```h/w i2c``` (data always 0xFF)
+* investigate why AT24 EEPROM does not work with ```h/w i2c``` (stm32l1xx i2c hangs after the first read)
 * investigate why MLX90614 sensor does not work with ```s/w bitbang i2c``` (data always 0xFF)
