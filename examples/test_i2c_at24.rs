@@ -10,6 +10,8 @@ use eeprom24x;
 use embedded_hal::digital::v2::OutputPin;
 use stm32l1xx_hal as hal;
 
+use cm::interrupt::Mutex;
+use core::cell::RefCell;
 use core::fmt::Write;
 use core::panic::PanicInfo;
 use eeprom24x::Eeprom24x;
@@ -18,8 +20,11 @@ use hal::prelude::*;
 use hal::rcc::Config;
 use hal::serial;
 use hal::serial::SerialExt;
+use hal::serial::Tx;
 use hal::stm32;
 use rt::entry;
+
+static G_DBG_TX: Mutex<RefCell<Option<Tx<stm32::USART1>>>> = Mutex::new(RefCell::new(None));
 
 #[entry]
 fn main() -> ! {
@@ -38,7 +43,11 @@ fn main() -> ! {
     };
 
     let serial = dp.USART1.usart((tx, rx), cfg, &mut rcc).unwrap();
-    let (mut tx, _) = serial.split();
+    let (tx, _) = serial.split();
+
+    cm::interrupt::free(|cs| {
+        G_DBG_TX.borrow(cs).replace(Some(tx));
+    });
 
     // init gpio for i2c
     let gpiob = dp.GPIOB.split();
@@ -61,12 +70,20 @@ fn main() -> ! {
 
         for addr in 0..=15 {
             match eeprom.read_byte(addr as u32) {
-                Ok(byte) => tx
-                    .write_fmt(format_args!("read #1 from addr {} : {}\r\n", addr, byte))
-                    .unwrap(),
-                Err(err) => tx
-                    .write_fmt(format_args!("read #1 err: {:?}\r\n", err))
-                    .unwrap(),
+                Ok(byte) => cm::interrupt::free(|cs| {
+                    if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+                        tx.write_fmt(format_args!("read #1 from addr {} : {}\r\n", addr, byte))
+                            .unwrap();
+                        G_DBG_TX.borrow(cs).replace(Some(tx));
+                    }
+                }),
+                Err(err) => cm::interrupt::free(|cs| {
+                    if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+                        tx.write_fmt(format_args!("read #1 err: {:?}\r\n", err))
+                            .unwrap();
+                        G_DBG_TX.borrow(cs).replace(Some(tx));
+                    }
+                }),
             };
             delay(500_000);
         }
@@ -75,12 +92,20 @@ fn main() -> ! {
 
         for addr in 0..=15 {
             match eeprom.write_byte(addr as u32, addr) {
-                Ok(_) => tx
-                    .write_fmt(format_args!("write #1 {} to addr {}\r\n", addr, addr))
-                    .unwrap(),
-                Err(err) => tx
-                    .write_fmt(format_args!("write #1 err: {:?}\r\n", err))
-                    .unwrap(),
+                Ok(_) => cm::interrupt::free(|cs| {
+                    if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+                        tx.write_fmt(format_args!("write #1 {} to addr {}\r\n", addr, addr))
+                            .unwrap();
+                        G_DBG_TX.borrow(cs).replace(Some(tx));
+                    }
+                }),
+                Err(err) => cm::interrupt::free(|cs| {
+                    if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+                        tx.write_fmt(format_args!("write #1 err: {:?}\r\n", err))
+                            .unwrap();
+                        G_DBG_TX.borrow(cs).replace(Some(tx));
+                    }
+                }),
             }
             delay(500_000);
         }
@@ -89,12 +114,20 @@ fn main() -> ! {
 
         for addr in 0..=15 {
             match eeprom.read_byte(addr as u32) {
-                Ok(byte) => tx
-                    .write_fmt(format_args!("read #2 from addr {} : {}\r\n", addr, byte))
-                    .unwrap(),
-                Err(err) => tx
-                    .write_fmt(format_args!("read #2 err: {:?}\r\n", err))
-                    .unwrap(),
+                Ok(byte) => cm::interrupt::free(|cs| {
+                    if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+                        tx.write_fmt(format_args!("read #2 from addr {} : {}\r\n", addr, byte))
+                            .unwrap();
+                        G_DBG_TX.borrow(cs).replace(Some(tx));
+                    }
+                }),
+                Err(err) => cm::interrupt::free(|cs| {
+                    if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+                        tx.write_fmt(format_args!("read #2 err: {:?}\r\n", err))
+                            .unwrap();
+                        G_DBG_TX.borrow(cs).replace(Some(tx));
+                    }
+                }),
             }
             delay(500_000);
         }
@@ -103,12 +136,20 @@ fn main() -> ! {
 
         for addr in 0..=15 {
             match eeprom.write_byte(addr as u32, 15 - addr) {
-                Ok(_) => tx
-                    .write_fmt(format_args!("write #2 {} to addr {}\r\n", 15 - addr, addr))
-                    .unwrap(),
-                Err(err) => tx
-                    .write_fmt(format_args!("write #2 err: {:?}\r\n", err))
-                    .unwrap(),
+                Ok(_) => cm::interrupt::free(|cs| {
+                    if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+                        tx.write_fmt(format_args!("write #2 {} to addr {}\r\n", 15 - addr, addr))
+                            .unwrap();
+                        G_DBG_TX.borrow(cs).replace(Some(tx));
+                    }
+                }),
+                Err(err) => cm::interrupt::free(|cs| {
+                    if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+                        tx.write_fmt(format_args!("write #2 err: {:?}\r\n", err))
+                            .unwrap();
+                        G_DBG_TX.borrow(cs).replace(Some(tx));
+                    }
+                }),
             }
             delay(500_000);
         }
@@ -116,7 +157,13 @@ fn main() -> ! {
 }
 
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
+fn panic(info: &PanicInfo) -> ! {
+    cm::interrupt::free(|cs| {
+        if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+            tx.write_fmt(format_args!("{}", info)).unwrap();
+        }
+    });
+
     loop {}
 }
 

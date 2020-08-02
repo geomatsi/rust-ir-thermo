@@ -10,16 +10,21 @@ use embedded_hal::digital::v2::OutputPin;
 use mlx9061x;
 use stm32l1xx_hal as hal;
 
+use cm::interrupt::Mutex;
+use core::cell::RefCell;
 use core::fmt::Write;
 use core::panic::PanicInfo;
 use hal::prelude::*;
 use hal::rcc::Config;
 use hal::serial;
 use hal::serial::SerialExt;
+use hal::serial::Tx;
 use hal::stm32;
 use mlx9061x::Mlx9061x;
 use mlx9061x::SlaveAddr;
 use rt::entry;
+
+static G_DBG_TX: Mutex<RefCell<Option<Tx<stm32::USART1>>>> = Mutex::new(RefCell::new(None));
 
 #[entry]
 fn main() -> ! {
@@ -37,7 +42,11 @@ fn main() -> ! {
         stopbits: serial::StopBits::STOP1,
     };
     let serial = dp.USART1.usart((tx, rx), cfg, &mut rcc).unwrap();
-    let (mut tx, _) = serial.split();
+    let (tx, _) = serial.split();
+
+    cm::interrupt::free(|cs| {
+        G_DBG_TX.borrow(cs).replace(Some(tx));
+    });
 
     // init gpio for i2c
     let gpiob = dp.GPIOB.split();
@@ -58,12 +67,20 @@ fn main() -> ! {
 
     loop {
         match temp.object1_temperature() {
-            Ok(byte) => tx
-                .write_fmt(format_args!("object temperature: {:.2}\r\n", byte))
-                .unwrap(),
-            Err(err) => tx
-                .write_fmt(format_args!("read err: {:?}\r\n", err))
-                .unwrap(),
+            Ok(byte) => cm::interrupt::free(|cs| {
+                if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+                    tx.write_fmt(format_args!("object temperature: {:.2}\r\n", byte))
+                        .unwrap();
+                    G_DBG_TX.borrow(cs).replace(Some(tx));
+                }
+            }),
+            Err(err) => cm::interrupt::free(|cs| {
+                if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+                    tx.write_fmt(format_args!("read err: {:?}\r\n", err))
+                        .unwrap();
+                    G_DBG_TX.borrow(cs).replace(Some(tx));
+                }
+            }),
         };
 
         delay(500_000);
@@ -71,7 +88,13 @@ fn main() -> ! {
 }
 
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
+fn panic(info: &PanicInfo) -> ! {
+    cm::interrupt::free(|cs| {
+        if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+            tx.write_fmt(format_args!("{}", info)).unwrap();
+        }
+    });
+
     loop {}
 }
 
