@@ -10,7 +10,9 @@ the following two things:
 
 Note that BOOT0 jumper shall be properly connected to switch MCU into UART boot mode.
 
-Examples:
+Custom runner calls stm32flash and llvm-objdump using certain default parameters,
+including baudrate, serial port, and binary format. Those changes can be modified
+using custom runner script input parameters:
 
 ```
 cargo run --release --example test-led -- -h
@@ -28,8 +30,20 @@ Options:
   -r, --rate          serial port baud rate, default is 115200
 ```
 
+Tests and binaries support two different i2c implementations:
+* i2c hardware block on stm32l1x microcontroller
+* i2c software bitbang implementation
+
+Any of the options can be selected using ```cargo``` features: ```i2c_hw``` or ```i2c_bb```.
+By default ```i2c_hw``` option is selected:
+
+```
+$ cargo run --release --example test-i2c-at24
+$ cargo run --release --example test-i2c-mlx90614
+$ cargo run --release --no-default-features --features i2c_bb --example test-i2c-at24
+$ cargo run --release --no-default-features --features i2c_bb --example test-i2c-mlx90614
+```
+
 # TODO
 
-* add feature to Cargo.toml to switch between ```h/w``` i2c and ```s/w bitbang``` i2c
-* investigate why AT24 EEPROM does not work with ```h/w i2c``` (stm32l1xx i2c hangs after the first read)
 * investigate why MLX90614 sensor does not work with ```s/w bitbang i2c``` (data always 0xFF)

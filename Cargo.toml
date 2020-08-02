@@ -8,17 +8,19 @@ autobins = false
 autotests = false
 autoexamples = false
 
+[features]
+default = ["i2c_hw"]
+i2c_hw = []
+i2c_bb = []
+
 [dependencies]
 #stm32l1xx-hal = "0.1.0"
 embedded-hal = "0.2.4"
 cortex-m-rt = "0.6.12"
 cortex-m = "0.6.3"
 bitbang-hal = "0.3.2"
-#mlx9061x = "0.1.0"
+mlx9061x = "0.1.0"
 eeprom24x = "0.3.0"
-
-[dependencies.mlx9061x]
-path = "/home/matsi/devel/code/zzz-dev-rust/mlx9061x-rs"
 
 [dependencies.stm32l1xx-hal]
 path = "/home/matsi/devel/code/zzz-dev-rust/stm32l1xx-hal"

@@ -3,7 +3,9 @@
 #![no_main]
 #![no_std]
 
-//use bitbang_hal;
+#[cfg(feature = "i2c_bb")]
+use bitbang_hal;
+
 use cortex_m as cm;
 use cortex_m_rt as rt;
 use eeprom24x;
@@ -55,9 +57,13 @@ fn main() -> ! {
     let sda = gpiob.pb9.into_open_drain_output();
 
     // init i2c: h/w (mcu) or s/w (bitbang)
+    #[cfg(feature = "i2c_hw")]
     let i2c = dp.I2C1.i2c((scl, sda), 100.khz(), &mut rcc);
-    //let tmr = dp.TIM2.timer(200.khz(), &mut rcc);
-    //let i2c = bitbang_hal::i2c::I2cBB::new(scl, sda, tmr);
+    #[cfg(feature = "i2c_bb")]
+    let i2c = {
+        let tmr = dp.TIM2.timer(200.khz(), &mut rcc);
+        bitbang_hal::i2c::I2cBB::new(scl, sda, tmr)
+    };
 
     // init eeprom24x
     let mut eeprom = Eeprom24x::new_24xm01(i2c, SlaveAddr::default());
