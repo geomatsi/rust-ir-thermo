@@ -20,6 +20,7 @@ cortex-m = "0.6.3"
 bitbang-hal = "0.3.2"
 mlx9061x = "0.1.0"
 eeprom24x = "0.3.0"
+hd44780-driver = "0.3.0"
 
 #[dependencies.stm32l1xx-hal]
 #version = "0.1.0"
@@ -44,3 +45,7 @@ path = "examples/test_i2c_at24.rs"
 [[example]]
 name = "test-i2c-mlx90614"
 path = "examples/test_i2c_mlx90614.rs"
+
+[[example]]
+name = "test-lcd"
+path = "examples/test_lcd.rs"

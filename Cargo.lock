@@ -143,6 +143,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hd44780-driver"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "49972adad12f63c1df05a5079e909a913de8aaf121855b5871396ff5039ac869"
+dependencies = [
+ "embedded-hal",
+]
+
+[[package]]
 name = "mlx9061x"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -199,6 +208,7 @@ dependencies = [
  "cortex-m-rt",
  "eeprom24x",
  "embedded-hal",
+ "hd44780-driver",
  "mlx9061x",
  "stm32l1xx-hal",
 ]
