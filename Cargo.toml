@@ -21,6 +21,8 @@ bitbang-hal = "0.3.2"
 mlx9061x = "0.1.0"
 eeprom24x = "0.3.0"
 hd44780-driver = "0.3.0"
+ufmt = "0.1.0"
+ufmt-write = "0.1.0"
 
 #[dependencies.stm32l1xx-hal]
 #version = "0.1.0"
@@ -35,8 +37,12 @@ name = "test-led"
 path = "examples/test_led.rs"
 
 [[example]]
-name = "test-uart"
-path = "examples/test_uart.rs"
+name = "test-uart-fmt"
+path = "examples/test_uart_fmt.rs"
+
+[[example]]
+name = "test-uart-ufmt"
+path = "examples/test_uart_ufmt.rs"
 
 [[example]]
 name = "test-i2c-at24"
