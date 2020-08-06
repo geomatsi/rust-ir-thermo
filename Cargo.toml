@@ -56,3 +56,9 @@ path = "examples/test_i2c_mlx90614.rs"
 [[example]]
 name = "test-lcd"
 path = "examples/test_lcd.rs"
+
+[[example]]
+name = "test-buttons"
+path = "examples/test_buttons.rs"
+
+
