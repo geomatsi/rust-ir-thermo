@@ -29,7 +29,8 @@ ufmt-write = "0.1.0"
 #features = ["stm32l151", "rt"]
 
 [dependencies.stm32l1xx-hal]
-path = "/home/matsi/devel/code/zzz-dev-rust/stm32l1xx-hal"
+git = "https://github.com/geomatsi/stm32l1xx-hal"
+branch = "integ"
 features = ["stm32l151", "rt"]
 
 [[example]]

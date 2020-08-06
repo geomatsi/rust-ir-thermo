@@ -266,6 +266,7 @@ dependencies = [
 [[package]]
 name = "stm32l1xx-hal"
 version = "0.1.0"
+source = "git+https://github.com/geomatsi/stm32l1xx-hal?branch=integ#e8da95ca44e67867434703e0acbcbdde0488207a"
 dependencies = [
  "bare-metal",
  "cast",
