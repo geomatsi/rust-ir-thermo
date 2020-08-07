@@ -63,5 +63,5 @@ name = "test-buttons"
 path = "examples/test_buttons.rs"
 
 [[example]]
-name = "test-rtfm"
-path = "examples/test_rtfm.rs"
+name = "test-rtic"
+path = "examples/test_rtic.rs"
