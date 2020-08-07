@@ -23,6 +23,7 @@ eeprom24x = "0.3.0"
 hd44780-driver = "0.3.0"
 ufmt = "0.1.0"
 ufmt-write = "0.1.0"
+cortex-m-rtic = "0.5.3"
 
 #[dependencies.stm32l1xx-hal]
 #version = "0.1.0"
@@ -61,4 +62,6 @@ path = "examples/test_lcd.rs"
 name = "test-buttons"
 path = "examples/test_buttons.rs"
 
-
+[[example]]
+name = "test-rtfm"
+path = "examples/test_rtfm.rs"
