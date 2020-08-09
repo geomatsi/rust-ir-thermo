@@ -15,6 +15,7 @@ use stm32l1xx_hal as hal;
 use cm::interrupt::Mutex;
 use core::cell::RefCell;
 use core::fmt::Write;
+use core::ops::DerefMut;
 use core::panic::PanicInfo;
 use hal::prelude::*;
 use hal::rcc::Config;
@@ -74,17 +75,15 @@ fn main() -> ! {
     loop {
         match temp.object1_temperature() {
             Ok(byte) => cm::interrupt::free(|cs| {
-                if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+                if let Some(ref mut tx) = G_DBG_TX.borrow(cs).borrow_mut().deref_mut() {
                     tx.write_fmt(format_args!("object temperature: {:.2}\r\n", byte))
                         .unwrap();
-                    G_DBG_TX.borrow(cs).replace(Some(tx));
                 }
             }),
             Err(err) => cm::interrupt::free(|cs| {
-                if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+                if let Some(ref mut tx) = G_DBG_TX.borrow(cs).borrow_mut().deref_mut() {
                     tx.write_fmt(format_args!("read err: {:?}\r\n", err))
                         .unwrap();
-                    G_DBG_TX.borrow(cs).replace(Some(tx));
                 }
             }),
         };
@@ -96,7 +95,7 @@ fn main() -> ! {
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     cm::interrupt::free(|cs| {
-        if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+        if let Some(ref mut tx) = G_DBG_TX.borrow(cs).borrow_mut().deref_mut() {
             tx.write_fmt(format_args!("{}", info)).unwrap();
         }
     });

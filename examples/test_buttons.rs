@@ -81,7 +81,7 @@ fn main() -> ! {
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     cm::interrupt::free(|cs| {
-        if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+        if let Some(ref mut tx) = G_DBG_TX.borrow(cs).borrow_mut().deref_mut() {
             tx.write_fmt(format_args!("{}\r\n", info)).unwrap();
         }
     });

@@ -15,6 +15,7 @@ use stm32l1xx_hal as hal;
 use cm::interrupt::Mutex;
 use core::cell::RefCell;
 use core::fmt::Write;
+use core::ops::DerefMut;
 use core::panic::PanicInfo;
 use eeprom24x::Eeprom24x;
 use eeprom24x::SlaveAddr;
@@ -30,6 +31,7 @@ static G_DBG_TX: Mutex<RefCell<Option<Tx<stm32::USART1>>>> = Mutex::new(RefCell:
 
 #[entry]
 fn main() -> ! {
+    let cp = cortex_m::Peripherals::take().unwrap();
     let dp = stm32::Peripherals::take().unwrap();
     let mut rcc = dp.RCC.freeze(Config::hsi());
 
@@ -51,10 +53,14 @@ fn main() -> ! {
         G_DBG_TX.borrow(cs).replace(Some(tx));
     });
 
-    // init gpio for i2c
+    // init delay
+    let mut delay = cp.SYST.delay(rcc.clocks);
+
+    // init gpio for eeprom
     let gpiob = dp.GPIOB.split();
     let scl = gpiob.pb8.into_open_drain_output();
     let sda = gpiob.pb9.into_open_drain_output();
+    let mut wp = gpiob.pb5.into_push_pull_output();
 
     // init i2c: h/w (mcu) or s/w (bitbang)
     #[cfg(feature = "i2c_hw")]
@@ -68,30 +74,26 @@ fn main() -> ! {
     // init eeprom24x
     let mut eeprom = Eeprom24x::new_24xm01(i2c, SlaveAddr::default());
 
-    // write-protect gpio for EEPROM
-    let mut wp = gpiob.pb5.into_push_pull_output();
-
     loop {
         wp.set_high().unwrap();
 
         for addr in 0..=15 {
             match eeprom.read_byte(addr as u32) {
                 Ok(byte) => cm::interrupt::free(|cs| {
-                    if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+                    if let Some(ref mut tx) = G_DBG_TX.borrow(cs).borrow_mut().deref_mut() {
                         tx.write_fmt(format_args!("read #1 from addr {} : {}\r\n", addr, byte))
                             .unwrap();
-                        G_DBG_TX.borrow(cs).replace(Some(tx));
                     }
                 }),
                 Err(err) => cm::interrupt::free(|cs| {
-                    if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+                    if let Some(ref mut tx) = G_DBG_TX.borrow(cs).borrow_mut().deref_mut() {
                         tx.write_fmt(format_args!("read #1 err: {:?}\r\n", err))
                             .unwrap();
-                        G_DBG_TX.borrow(cs).replace(Some(tx));
                     }
                 }),
             };
-            delay(500_000);
+
+            delay.delay(10.ms());
         }
 
         wp.set_low().unwrap();
@@ -99,21 +101,20 @@ fn main() -> ! {
         for addr in 0..=15 {
             match eeprom.write_byte(addr as u32, addr) {
                 Ok(_) => cm::interrupt::free(|cs| {
-                    if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+                    if let Some(ref mut tx) = G_DBG_TX.borrow(cs).borrow_mut().deref_mut() {
                         tx.write_fmt(format_args!("write #1 {} to addr {}\r\n", addr, addr))
                             .unwrap();
-                        G_DBG_TX.borrow(cs).replace(Some(tx));
                     }
                 }),
                 Err(err) => cm::interrupt::free(|cs| {
-                    if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+                    if let Some(ref mut tx) = G_DBG_TX.borrow(cs).borrow_mut().deref_mut() {
                         tx.write_fmt(format_args!("write #1 err: {:?}\r\n", err))
                             .unwrap();
-                        G_DBG_TX.borrow(cs).replace(Some(tx));
                     }
                 }),
             }
-            delay(500_000);
+
+            delay.delay(10.ms());
         }
 
         wp.set_high().unwrap();
@@ -121,21 +122,20 @@ fn main() -> ! {
         for addr in 0..=15 {
             match eeprom.read_byte(addr as u32) {
                 Ok(byte) => cm::interrupt::free(|cs| {
-                    if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+                    if let Some(ref mut tx) = G_DBG_TX.borrow(cs).borrow_mut().deref_mut() {
                         tx.write_fmt(format_args!("read #2 from addr {} : {}\r\n", addr, byte))
                             .unwrap();
-                        G_DBG_TX.borrow(cs).replace(Some(tx));
                     }
                 }),
                 Err(err) => cm::interrupt::free(|cs| {
-                    if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+                    if let Some(ref mut tx) = G_DBG_TX.borrow(cs).borrow_mut().deref_mut() {
                         tx.write_fmt(format_args!("read #2 err: {:?}\r\n", err))
                             .unwrap();
-                        G_DBG_TX.borrow(cs).replace(Some(tx));
                     }
                 }),
             }
-            delay(500_000);
+
+            delay.delay(10.ms());
         }
 
         wp.set_low().unwrap();
@@ -143,21 +143,20 @@ fn main() -> ! {
         for addr in 0..=15 {
             match eeprom.write_byte(addr as u32, 15 - addr) {
                 Ok(_) => cm::interrupt::free(|cs| {
-                    if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+                    if let Some(ref mut tx) = G_DBG_TX.borrow(cs).borrow_mut().deref_mut() {
                         tx.write_fmt(format_args!("write #2 {} to addr {}\r\n", 15 - addr, addr))
                             .unwrap();
-                        G_DBG_TX.borrow(cs).replace(Some(tx));
                     }
                 }),
                 Err(err) => cm::interrupt::free(|cs| {
-                    if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+                    if let Some(ref mut tx) = G_DBG_TX.borrow(cs).borrow_mut().deref_mut() {
                         tx.write_fmt(format_args!("write #2 err: {:?}\r\n", err))
                             .unwrap();
-                        G_DBG_TX.borrow(cs).replace(Some(tx));
                     }
                 }),
             }
-            delay(500_000);
+
+            delay.delay(10.ms());
         }
     }
 }
@@ -165,16 +164,10 @@ fn main() -> ! {
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     cm::interrupt::free(|cs| {
-        if let Some(mut tx) = G_DBG_TX.borrow(cs).replace(None) {
+        if let Some(ref mut tx) = G_DBG_TX.borrow(cs).borrow_mut().deref_mut() {
             tx.write_fmt(format_args!("{}", info)).unwrap();
         }
     });
 
     loop {}
-}
-
-fn delay(count: u32) {
-    for _ in 0..count {
-        cm::asm::nop();
-    }
 }
