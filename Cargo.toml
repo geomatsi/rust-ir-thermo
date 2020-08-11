@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Sergey Matyukevich <geomatsi@gmail.com>"]
 edition = "2018"
 
-autobins = false
+#autobins = false
 autotests = false
 autoexamples = false
 
@@ -24,6 +24,8 @@ hd44780-driver = "0.3.0"
 ufmt = "0.1.0"
 ufmt-write = "0.1.0"
 cortex-m-rtic = "0.5.3"
+heapless = "0.5.5"
+nb = "1.0.0"
 
 #[dependencies.stm32l1xx-hal]
 #version = "0.1.0"
