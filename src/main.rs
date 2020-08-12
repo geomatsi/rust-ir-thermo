@@ -8,7 +8,6 @@ use rtic::cyccnt::Instant;
 use rtic::cyccnt::U32Ext;
 use stm32l1xx_hal as hal;
 
-use hd44780_driver;
 use hd44780_driver::bus::FourBitBus;
 use hd44780_driver::Cursor;
 use hd44780_driver::CursorBlink;
@@ -44,9 +43,10 @@ use nb::block;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Menu {
-    Test1,
-    Test2,
-    Test3,
+    Shot,
+    ShotMem,
+    Cont,
+    ContMem,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -55,10 +55,33 @@ pub enum State {
     Active(Menu),
 }
 
+impl State {
+    pub fn next(state: State) -> State {
+        match state {
+            State::Select(Menu::Shot) => State::Select(Menu::ShotMem),
+            State::Select(Menu::ShotMem) => State::Select(Menu::Cont),
+            State::Select(Menu::Cont) => State::Select(Menu::ContMem),
+            State::Select(Menu::ContMem) => State::Select(Menu::Shot),
+            _ => state,
+        }
+    }
+
+    pub fn prev(state: State) -> State {
+        match state {
+            State::Select(Menu::Shot) => State::Select(Menu::ContMem),
+            State::Select(Menu::ShotMem) => State::Select(Menu::Shot),
+            State::Select(Menu::Cont) => State::Select(Menu::ShotMem),
+            State::Select(Menu::ContMem) => State::Select(Menu::Cont),
+            _ => state,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum Event {
     Button1,
     Button2,
+    Enter,
 }
 
 pub struct DelayTimer<Timer>
@@ -113,6 +136,22 @@ where
 const TEST_PERIOD: u32 = 8_000_000; /* 0.5 sec */
 const PROC_PERIOD: u32 = 4_000_000; /* 0.25 sec */
 
+/*  */
+
+type LcdType = HD44780<
+    DelayTimer<Timer<TIM3>>,
+    FourBitBus<
+        OldOutputPin<PB10<Output<PushPull>>>,
+        OldOutputPin<PA8<Output<PushPull>>>,
+        OldOutputPin<PB12<Output<PushPull>>>,
+        OldOutputPin<PB13<Output<PushPull>>>,
+        OldOutputPin<PB14<Output<PushPull>>>,
+        OldOutputPin<PB15<Output<PushPull>>>,
+    >,
+>;
+
+/* */
+
 #[app(device = stm32l1xx_hal::stm32, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
     struct Resources {
@@ -128,27 +167,20 @@ const APP: () = {
         button2: PA5<Input<Floating>>,
         tmr2: hal::timer::Timer<stm32::TIM2>,
         queue: Queue<Event, U4>,
-        lcd: HD44780<
-            DelayTimer<Timer<TIM3>>,
-            FourBitBus<
-                OldOutputPin<PB10<Output<PushPull>>>,
-                OldOutputPin<PA8<Output<PushPull>>>,
-                OldOutputPin<PB12<Output<PushPull>>>,
-                OldOutputPin<PB13<Output<PushPull>>>,
-                OldOutputPin<PB14<Output<PushPull>>>,
-                OldOutputPin<PB15<Output<PushPull>>>,
-            >,
-        >,
+        state: State,
+        lcd: LcdType,
     }
 
     #[init(schedule = [test_task, proc_task])]
     fn init(mut cx: init::Context) -> init::LateResources {
         /* init hardware */
+
         let mut rcc = cx.device.RCC.freeze(Config::hsi());
         let gpioa = cx.device.GPIOA.split();
         let gpiob = cx.device.GPIOB.split();
 
         /* init buttons */
+
         let mut tmr2 = cx.device.TIM2.timer(10.hz(), &mut rcc);
         tmr2.listen();
 
@@ -207,6 +239,14 @@ const APP: () = {
             cursor_blink: CursorBlink::Off,
         });
 
+        /* initial state */
+
+        let state = State::Select(Menu::Shot);
+
+        lcd.clear();
+        lcd.set_cursor_pos(0);
+        lcd.write_str("Shot").unwrap();
+
         /* priority queue */
 
         let queue = Queue(heapless::i::Queue::new());
@@ -222,13 +262,14 @@ const APP: () = {
         /* init late resources */
 
         init::LateResources {
-            queue: queue,
-            lcd: lcd,
-            led1: led1,
-            led2: led2,
-            tmr2: tmr2,
-            button1: button1,
-            button2: button2,
+            state,
+            queue,
+            lcd,
+            led1,
+            led2,
+            tmr2,
+            button1,
+            button2,
         }
     }
 
@@ -243,19 +284,37 @@ const APP: () = {
     fn tim2(cx: tim2::Context) {
         if cx.resources.button1.is_low().unwrap() {
             *cx.resources.cb1 += 1;
-
-            if *cx.resources.cb1 > 3 {
-                cx.resources.queue.enqueue(Event::Button1).ok();
-                *cx.resources.cb1 = 0;
+        } else {
+            match *cx.resources.cb1 {
+                x if 1 <= x && x <= 3 => {
+                    cx.resources.queue.enqueue(Event::Button1).ok();
+                    *cx.resources.cb1 = 0;
+                }
+                x if x > 3 => {
+                    cx.resources.queue.enqueue(Event::Enter).ok();
+                    *cx.resources.cb1 = 0;
+                }
+                _ => {
+                    *cx.resources.cb1 = 0;
+                }
             }
         }
 
         if cx.resources.button2.is_low().unwrap() {
             *cx.resources.cb2 += 1;
-
-            if *cx.resources.cb2 > 3 {
-                cx.resources.queue.enqueue(Event::Button2).ok();
-                *cx.resources.cb2 = 0;
+        } else {
+            match *cx.resources.cb2 {
+                x if 1 <= x && x <= 3 => {
+                    cx.resources.queue.enqueue(Event::Button2).ok();
+                    *cx.resources.cb2 = 0;
+                }
+                x if x > 3 => {
+                    cx.resources.queue.enqueue(Event::Enter).ok();
+                    *cx.resources.cb2 = 0;
+                }
+                _ => {
+                    *cx.resources.cb2 = 0;
+                }
             }
         }
 
@@ -271,24 +330,51 @@ const APP: () = {
             .unwrap();
     }
 
-    #[task(schedule = [proc_task], resources = [queue, lcd])]
+    #[task(schedule = [proc_task], resources = [queue, state, lcd])]
     fn proc_task(cx: proc_task::Context) {
+        let state = cx.resources.state;
         let queue = cx.resources.queue;
         let lcd = cx.resources.lcd;
 
         while !queue.is_empty() {
             if let Some(e) = queue.dequeue() {
-                match e {
-                    Event::Button1 => {
-                        lcd.clear();
-                        lcd.set_cursor_pos(0);
-                        lcd.write_str("BUTTON1").unwrap();
-                    }
-                    Event::Button2 => {
-                        lcd.clear();
-                        lcd.set_cursor_pos(0);
-                        lcd.write_str("BUTTON2").unwrap();
-                    }
+                match state {
+                    State::Select(x) => match e {
+                        Event::Button1 => *state = State::next(*state),
+                        Event::Button2 => *state = State::prev(*state),
+                        Event::Enter => *state = State::Active(*x),
+                    },
+                    State::Active(x) => match e {
+                        _ => *state = State::Select(*x),
+                    },
+                }
+            }
+
+            match state {
+                State::Select(Menu::Shot) => {
+                    lcd.clear();
+                    lcd.set_cursor_pos(0);
+                    lcd.write_str("Shot").unwrap();
+                }
+                State::Select(Menu::ShotMem) => {
+                    lcd.clear();
+                    lcd.set_cursor_pos(0);
+                    lcd.write_str("Shot Mem").unwrap();
+                }
+                State::Select(Menu::Cont) => {
+                    lcd.clear();
+                    lcd.set_cursor_pos(0);
+                    lcd.write_str("Cont").unwrap();
+                }
+                State::Select(Menu::ContMem) => {
+                    lcd.clear();
+                    lcd.set_cursor_pos(0);
+                    lcd.write_str("Cont Mem").unwrap();
+                }
+                State::Active(_) => {
+                    lcd.clear();
+                    lcd.set_cursor_pos(0);
+                    lcd.write_str("NOT YET").unwrap();
                 }
             }
         }
