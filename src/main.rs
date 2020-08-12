@@ -25,9 +25,14 @@ use embedded_hal::digital::v2::OutputPin;
 use embedded_hal::digital::v2::ToggleableOutputPin;
 use embedded_hal::timer::CountDown;
 
+use hal::gpio::gpioa::{PA14, PA4, PA5, PA8};
+use hal::gpio::gpiob::{PB0, PB1, PB10, PB12, PB13, PB14, PB15, PB8, PB9};
+use hal::gpio::{Floating, Input, Output, PushPull};
+use hal::i2c::I2c;
 use hal::prelude::*;
 use hal::rcc::Config;
 use hal::stm32;
+use hal::stm32::I2C1;
 use hal::stm32::TIM3;
 use hal::time::Hertz;
 use hal::timer::Timer;
@@ -35,11 +40,12 @@ use hal::timer::Timer;
 use heapless::consts::*;
 use heapless::spsc::Queue;
 
-use hal::gpio::gpioa::{PA4, PA5, PA8};
-use hal::gpio::gpiob::{PB0, PB1, PB10, PB12, PB13, PB14, PB15};
-use hal::gpio::{Floating, Input, Output, PushPull};
+use mlx9061x::Mlx9061x;
+use mlx9061x::SlaveAddr;
 
+use mlx9061x::ic::Mlx90614;
 use nb::block;
+use stm32l1xx_hal::gpio::OpenDrain;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Menu {
@@ -150,6 +156,8 @@ type LcdType = HD44780<
     >,
 >;
 
+type TempType = Mlx9061x<I2c<I2C1, (PB8<Output<OpenDrain>>, PB9<Output<OpenDrain>>)>, Mlx90614>;
+
 /* */
 
 #[app(device = stm32l1xx_hal::stm32, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
@@ -169,6 +177,8 @@ const APP: () = {
         queue: Queue<Event, U4>,
         state: State,
         lcd: LcdType,
+        temp: TempType,
+        temp_en: PA14<Output<PushPull>>,
     }
 
     #[init(schedule = [test_task, proc_task])]
@@ -239,6 +249,16 @@ const APP: () = {
             cursor_blink: CursorBlink::Off,
         });
 
+        /* init IR temp sensor */
+
+        let scl = gpiob.pb8.into_open_drain_output();
+        let sda = gpiob.pb9.into_open_drain_output();
+        let i2c = cx.device.I2C1.i2c((scl, sda), 100.khz(), &mut rcc);
+
+        let temp = Mlx9061x::new_mlx90614(i2c, SlaveAddr::default(), 5).unwrap();
+        let mut temp_en = gpioa.pa14.into_push_pull_output();
+        temp_en.set_low().unwrap();
+
         /* initial state */
 
         let state = State::Select(Menu::Shot);
@@ -270,6 +290,8 @@ const APP: () = {
             tmr2,
             button1,
             button2,
+            temp,
+            temp_en,
         }
     }
 
@@ -330,11 +352,13 @@ const APP: () = {
             .unwrap();
     }
 
-    #[task(schedule = [proc_task], resources = [queue, state, lcd])]
+    #[task(schedule = [proc_task], resources = [queue, state, lcd, temp, temp_en])]
     fn proc_task(cx: proc_task::Context) {
         let state = cx.resources.state;
         let queue = cx.resources.queue;
+        let temp = cx.resources.temp;
         let lcd = cx.resources.lcd;
+        let mut t: f32 = 0.0;
 
         while !queue.is_empty() {
             if let Some(e) = queue.dequeue() {
@@ -344,9 +368,13 @@ const APP: () = {
                         Event::Button2 => *state = State::prev(*state),
                         Event::Enter => *state = State::Active(*x),
                     },
-                    State::Active(x) => match e {
-                        _ => *state = State::Select(*x),
+                    State::Active(Menu::Shot) => match e {
+                        Event::Enter => *state = State::Select(Menu::Shot),
+                        _ => {
+                            t = temp.object1_temperature().unwrap();
+                        }
                     },
+                    State::Active(x) => *state = State::Select(*x),
                 }
             }
 
@@ -370,6 +398,13 @@ const APP: () = {
                     lcd.clear();
                     lcd.set_cursor_pos(0);
                     lcd.write_str("Cont Mem").unwrap();
+                }
+                State::Active(Menu::Shot) => {
+                    lcd.clear();
+                    lcd.set_cursor_pos(0);
+                    lcd.write_str("Shot").unwrap();
+                    lcd.set_cursor_pos(40);
+                    lcd.write_fmt(format_args!("{:.2}", t)).unwrap();
                 }
                 State::Active(_) => {
                     lcd.clear();
