@@ -94,6 +94,7 @@ pub enum Event {
     Button1,
     Button2,
     Enter,
+    Repeat,
 }
 
 pub struct DelayTimer<Timer>
@@ -145,6 +146,8 @@ where
 }
 
 /* HSI clock : 16MHz  */
+
+const CONT_PERIOD: u32 = 16_000_000; /* 1 sec */
 const TEST_PERIOD: u32 = 8_000_000; /* 0.5 sec */
 const PROC_PERIOD: u32 = 4_000_000; /* 0.25 sec */
 
@@ -358,13 +361,18 @@ const APP: () = {
             .unwrap();
     }
 
-    #[task(schedule = [proc_task], resources = [queue, state, lcd, temp, temp_en])]
+    #[task(resources = [queue])]
+    fn cont_task(cx: cont_task::Context) {
+        cx.resources.queue.enqueue(Event::Repeat).ok();
+    }
+
+    #[task(schedule = [proc_task, cont_task], resources = [queue, state, lcd, temp, temp_en])]
     fn proc_task(cx: proc_task::Context) {
         let state = cx.resources.state;
         let queue = cx.resources.queue;
         let temp = cx.resources.temp;
         let lcd = cx.resources.lcd;
-        let mut t: f32 = 0.0;
+        let mut t: Option<f32> = None;
 
         while !queue.is_empty() {
             if let Some(e) = queue.dequeue() {
@@ -372,15 +380,37 @@ const APP: () = {
                     State::Select(x) => match e {
                         Event::Button1 => *state = State::next(*state),
                         Event::Button2 => *state = State::prev(*state),
-                        Event::Enter => *state = State::Active(*x),
+                        Event::Enter => {
+                            queue.enqueue(Event::Repeat).ok();
+                            *state = State::Active(*x);
+                        }
+                        _ => {}
                     },
                     State::Active(Menu::Shot) => match e {
                         Event::Enter => *state = State::Select(Menu::Shot),
-                        _ => {
-                            t = temp.object1_temperature().unwrap();
+                        Event::Button1 | Event::Button2 => {
+                            if let Ok(v) = temp.object1_temperature() {
+                                t = Some(v);
+                            }
+                        }
+                        _ => {}
+                    },
+                    State::Active(Menu::Cont) => match e {
+                        Event::Enter => *state = State::Select(Menu::Cont),
+                        Event::Button1 | Event::Button2 | Event::Repeat => {
+                            if let Ok(v) = temp.object1_temperature() {
+                                t = Some(v);
+                            }
+                            cx.schedule
+                                .cont_task(Instant::now() + CONT_PERIOD.cycles())
+                                .ok();
                         }
                     },
-                    State::Active(x) => *state = State::Select(*x),
+                    State::Active(x) => {
+                        if let Event::Enter = e {
+                            *state = State::Select(*x)
+                        }
+                    }
                 }
             }
 
@@ -420,7 +450,22 @@ const APP: () = {
                     lcd.set_cursor_pos(0);
                     lcd.write_str("Shot").unwrap();
                     lcd.set_cursor_pos(40);
-                    lcd.write_fmt(format_args!("{:.2}", t)).unwrap();
+                    if let Some(v) = t {
+                        lcd.write_fmt(format_args!("{:.2}", v)).unwrap();
+                    } else {
+                        lcd.write_str("---").unwrap();
+                    }
+                }
+                State::Active(Menu::Cont) => {
+                    lcd.clear();
+                    lcd.set_cursor_pos(0);
+                    lcd.write_str("Cont").unwrap();
+                    lcd.set_cursor_pos(40);
+                    if let Some(v) = t {
+                        lcd.write_fmt(format_args!("{:.2}", v)).unwrap();
+                    } else {
+                        lcd.write_str("---").unwrap();
+                    }
                 }
                 State::Active(_) => {
                     lcd.clear();
