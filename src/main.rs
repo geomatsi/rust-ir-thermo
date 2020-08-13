@@ -53,6 +53,8 @@ pub enum Menu {
     ShotMem,
     Cont,
     ContMem,
+    View,
+    Stream,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -67,17 +69,21 @@ impl State {
             State::Select(Menu::Shot) => State::Select(Menu::ShotMem),
             State::Select(Menu::ShotMem) => State::Select(Menu::Cont),
             State::Select(Menu::Cont) => State::Select(Menu::ContMem),
-            State::Select(Menu::ContMem) => State::Select(Menu::Shot),
+            State::Select(Menu::ContMem) => State::Select(Menu::View),
+            State::Select(Menu::View) => State::Select(Menu::Stream),
+            State::Select(Menu::Stream) => State::Select(Menu::Shot),
             _ => state,
         }
     }
 
     pub fn prev(state: State) -> State {
         match state {
-            State::Select(Menu::Shot) => State::Select(Menu::ContMem),
+            State::Select(Menu::Shot) => State::Select(Menu::Stream),
             State::Select(Menu::ShotMem) => State::Select(Menu::Shot),
             State::Select(Menu::Cont) => State::Select(Menu::ShotMem),
             State::Select(Menu::ContMem) => State::Select(Menu::Cont),
+            State::Select(Menu::View) => State::Select(Menu::ContMem),
+            State::Select(Menu::Stream) => State::Select(Menu::View),
             _ => state,
         }
     }
@@ -398,6 +404,16 @@ const APP: () = {
                     lcd.clear();
                     lcd.set_cursor_pos(0);
                     lcd.write_str("Cont Mem").unwrap();
+                }
+                State::Select(Menu::View) => {
+                    lcd.clear();
+                    lcd.set_cursor_pos(0);
+                    lcd.write_str("View").unwrap();
+                }
+                State::Select(Menu::Stream) => {
+                    lcd.clear();
+                    lcd.set_cursor_pos(0);
+                    lcd.write_str("Stream").unwrap();
                 }
                 State::Active(Menu::Shot) => {
                     lcd.clear();
