@@ -9,12 +9,9 @@ use rtic::cyccnt::U32Ext;
 use stm32l1xx_hal as hal;
 
 use hd44780_driver::bus::FourBitBus;
-use hd44780_driver::Cursor;
-use hd44780_driver::CursorBlink;
-use hd44780_driver::Display;
-use hd44780_driver::DisplayMode;
 use hd44780_driver::HD44780;
 
+use core::fmt;
 use core::fmt::Write;
 use core::panic::PanicInfo;
 use embedded_hal::blocking::delay::DelayMs;
@@ -47,7 +44,7 @@ use mlx9061x::ic::Mlx90614;
 use nb::block;
 use stm32l1xx_hal::gpio::OpenDrain;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum Menu {
     Shot,
     ShotMem,
@@ -57,10 +54,24 @@ pub enum Menu {
     Stream,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum State {
     Select(Menu),
     Active(Menu),
+}
+
+impl fmt::Display for State {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let s = match *self {
+            State::Select(Menu::Shot) | State::Active(Menu::Shot) => "Shot",
+            State::Select(Menu::ShotMem) | State::Active(Menu::ShotMem) => "ShotMem",
+            State::Select(Menu::Cont) | State::Active(Menu::Cont) => "Cont",
+            State::Select(Menu::ContMem) | State::Active(Menu::ContMem) => "ContMem",
+            State::Select(Menu::View) | State::Active(Menu::View) => "View",
+            State::Select(Menu::Stream) | State::Active(Menu::Stream) => "Stream",
+        };
+        write!(f, "{}", s)
+    }
 }
 
 impl State {
@@ -252,10 +263,10 @@ const APP: () = {
 
         lcd.reset();
         lcd.clear();
-        lcd.set_display_mode(DisplayMode {
-            display: Display::On,
-            cursor_visibility: Cursor::Invisible,
-            cursor_blink: CursorBlink::Off,
+        lcd.set_display_mode(hd44780_driver::DisplayMode {
+            display: hd44780_driver::Display::On,
+            cursor_visibility: hd44780_driver::Cursor::Invisible,
+            cursor_blink: hd44780_driver::CursorBlink::Off,
         });
 
         /* init IR temp sensor */
@@ -274,7 +285,7 @@ const APP: () = {
 
         lcd.clear();
         lcd.set_cursor_pos(0);
-        lcd.write_str("Shot").unwrap();
+        lcd.write_fmt(format_args!("{}", state)).unwrap();
 
         /* priority queue */
 
@@ -416,78 +427,29 @@ const APP: () = {
             }
 
             match state {
-                State::Select(Menu::Shot) => {
+                State::Select(_) => {
                     lcd.clear();
                     lcd.set_cursor_pos(0);
-                    lcd.write_str("Shot").unwrap();
+                    lcd.write_fmt(format_args!("{}", state)).unwrap();
                 }
-                State::Select(Menu::ShotMem) => {
+                State::Active(Menu::Shot)
+                | State::Active(Menu::ShotMem)
+                | State::Active(Menu::Cont)
+                | State::Active(Menu::ContMem) => {
                     lcd.clear();
                     lcd.set_cursor_pos(0);
-                    lcd.write_str("Shot Mem").unwrap();
-                }
-                State::Select(Menu::Cont) => {
-                    lcd.clear();
-                    lcd.set_cursor_pos(0);
-                    lcd.write_str("Cont").unwrap();
-                }
-                State::Select(Menu::ContMem) => {
-                    lcd.clear();
-                    lcd.set_cursor_pos(0);
-                    lcd.write_str("Cont Mem").unwrap();
-                }
-                State::Select(Menu::View) => {
-                    lcd.clear();
-                    lcd.set_cursor_pos(0);
-                    lcd.write_str("View").unwrap();
-                }
-                State::Select(Menu::Stream) => {
-                    lcd.clear();
-                    lcd.set_cursor_pos(0);
-                    lcd.write_str("Stream").unwrap();
-                }
-                State::Active(Menu::Shot) => {
-                    lcd.clear();
-                    lcd.set_cursor_pos(0);
-                    lcd.write_str("Shot").unwrap();
+                    lcd.write_fmt(format_args!("{}", state)).unwrap();
                     lcd.set_cursor_pos(40);
                     if let Some(v) = t {
-                        lcd.write_fmt(format_args!("{:.2}", v)).unwrap();
-                    } else {
-                        lcd.write_str("---").unwrap();
-                    }
-                }
-                State::Active(Menu::ShotMem) => {
-                    lcd.clear();
-                    lcd.set_cursor_pos(0);
-                    lcd.write_str("ShotMem").unwrap();
-                    lcd.set_cursor_pos(40);
-                    if let Some(v) = t {
-                        lcd.write_fmt(format_args!("{:.2}", v)).unwrap();
-                    // TODO: write measurement to AT24 flash
-                    } else {
-                        lcd.write_str("---").unwrap();
-                    }
-                }
-                State::Active(Menu::Cont) => {
-                    lcd.clear();
-                    lcd.set_cursor_pos(0);
-                    lcd.write_str("Cont").unwrap();
-                    lcd.set_cursor_pos(40);
-                    if let Some(v) = t {
-                        lcd.write_fmt(format_args!("{:.2}", v)).unwrap();
-                    } else {
-                        lcd.write_str("---").unwrap();
-                    }
-                }
-                State::Active(Menu::ContMem) => {
-                    lcd.clear();
-                    lcd.set_cursor_pos(0);
-                    lcd.write_str("Cont").unwrap();
-                    lcd.set_cursor_pos(40);
-                    if let Some(v) = t {
-                        lcd.write_fmt(format_args!("{:.2}", v)).unwrap();
-                    // TODO: write measurement to AT24 flash
+                        match state {
+                            State::Active(Menu::ShotMem) | State::Active(Menu::ContMem) => {
+                                lcd.write_fmt(format_args!("{:.2} *", v)).unwrap();
+                                // TODO: write to AT24 flash
+                            }
+                            _ => {
+                                lcd.write_fmt(format_args!("{:.2}", v)).unwrap();
+                            }
+                        }
                     } else {
                         lcd.write_str("---").unwrap();
                     }
