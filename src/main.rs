@@ -386,7 +386,7 @@ const APP: () = {
                         }
                         _ => {}
                     },
-                    State::Active(Menu::Shot) => match e {
+                    State::Active(Menu::Shot) | State::Active(Menu::ShotMem) => match e {
                         Event::Enter => *state = State::Select(Menu::Shot),
                         Event::Button1 | Event::Button2 => {
                             if let Ok(v) = temp.object1_temperature() {
@@ -395,9 +395,9 @@ const APP: () = {
                         }
                         _ => {}
                     },
-                    State::Active(Menu::Cont) => match e {
+                    State::Active(Menu::Cont) | State::Active(Menu::ContMem) => match e {
                         Event::Enter => *state = State::Select(Menu::Cont),
-                        Event::Button1 | Event::Button2 | Event::Repeat => {
+                        Event::Repeat => {
                             if let Ok(v) = temp.object1_temperature() {
                                 t = Some(v);
                             }
@@ -405,6 +405,7 @@ const APP: () = {
                                 .cont_task(Instant::now() + CONT_PERIOD.cycles())
                                 .ok();
                         }
+                        _ => {}
                     },
                     State::Active(x) => {
                         if let Event::Enter = e {
@@ -456,6 +457,18 @@ const APP: () = {
                         lcd.write_str("---").unwrap();
                     }
                 }
+                State::Active(Menu::ShotMem) => {
+                    lcd.clear();
+                    lcd.set_cursor_pos(0);
+                    lcd.write_str("ShotMem").unwrap();
+                    lcd.set_cursor_pos(40);
+                    if let Some(v) = t {
+                        lcd.write_fmt(format_args!("{:.2}", v)).unwrap();
+                    // TODO: write measurement to AT24 flash
+                    } else {
+                        lcd.write_str("---").unwrap();
+                    }
+                }
                 State::Active(Menu::Cont) => {
                     lcd.clear();
                     lcd.set_cursor_pos(0);
@@ -463,6 +476,18 @@ const APP: () = {
                     lcd.set_cursor_pos(40);
                     if let Some(v) = t {
                         lcd.write_fmt(format_args!("{:.2}", v)).unwrap();
+                    } else {
+                        lcd.write_str("---").unwrap();
+                    }
+                }
+                State::Active(Menu::ContMem) => {
+                    lcd.clear();
+                    lcd.set_cursor_pos(0);
+                    lcd.write_str("Cont").unwrap();
+                    lcd.set_cursor_pos(40);
+                    if let Some(v) = t {
+                        lcd.write_fmt(format_args!("{:.2}", v)).unwrap();
+                    // TODO: write measurement to AT24 flash
                     } else {
                         lcd.write_str("---").unwrap();
                     }
