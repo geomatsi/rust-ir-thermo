@@ -67,8 +67,10 @@ impl fmt::Display for State {
             State::Select(Menu::ShotMem) | State::Active(Menu::ShotMem) => "ShotMem",
             State::Select(Menu::Cont) | State::Active(Menu::Cont) => "Cont",
             State::Select(Menu::ContMem) | State::Active(Menu::ContMem) => "ContMem",
-            State::Select(Menu::View) | State::Active(Menu::View) => "View",
-            State::Select(Menu::Stream) | State::Active(Menu::Stream) => "Stream",
+            State::Select(Menu::View) => "View",
+            State::Active(Menu::View) => "V",
+            State::Select(Menu::Stream) => "Stream",
+            State::Active(Menu::Stream) => "S",
         };
         write!(f, "{}", s)
     }
@@ -188,6 +190,9 @@ const APP: () = {
         cb1: u8,
         #[init(0)]
         cb2: u8,
+        #[init(None)]
+        pos: Option<u32>,
+
         // late resources
         led1: PB0<Output<PushPull>>,
         led2: PB1<Output<PushPull>>,
@@ -377,13 +382,14 @@ const APP: () = {
         cx.resources.queue.enqueue(Event::Repeat).ok();
     }
 
-    #[task(schedule = [proc_task, cont_task], resources = [queue, state, lcd, temp, temp_en])]
+    #[task(schedule = [proc_task, cont_task], resources = [queue, state, pos, lcd, temp, temp_en])]
     fn proc_task(cx: proc_task::Context) {
+        let mut val: Option<f32> = None;
         let state = cx.resources.state;
         let queue = cx.resources.queue;
         let temp = cx.resources.temp;
         let lcd = cx.resources.lcd;
-        let mut t: Option<f32> = None;
+        let pos = cx.resources.pos;
 
         while !queue.is_empty() {
             if let Some(e) = queue.dequeue() {
@@ -397,20 +403,30 @@ const APP: () = {
                         }
                         _ => {}
                     },
-                    State::Active(Menu::Shot) | State::Active(Menu::ShotMem) => match e {
+                    State::Active(Menu::Shot) => match e {
                         Event::Enter => *state = State::Select(Menu::Shot),
                         Event::Button1 | Event::Button2 => {
-                            if let Ok(v) = temp.object1_temperature() {
-                                t = Some(v);
+                            if let Ok(t) = temp.object1_temperature() {
+                                val = Some(t);
                             }
                         }
                         _ => {}
                     },
-                    State::Active(Menu::Cont) | State::Active(Menu::ContMem) => match e {
+                    State::Active(Menu::ShotMem) => match e {
+                        Event::Enter => *state = State::Select(Menu::ShotMem),
+                        Event::Button1 | Event::Button2 => {
+                            if let Ok(t) = temp.object1_temperature() {
+                                // TODO: write value to AT24 flash
+                                val = Some(t);
+                            }
+                        }
+                        _ => {}
+                    },
+                    State::Active(Menu::Cont) => match e {
                         Event::Enter => *state = State::Select(Menu::Cont),
                         Event::Repeat => {
-                            if let Ok(v) = temp.object1_temperature() {
-                                t = Some(v);
+                            if let Ok(t) = temp.object1_temperature() {
+                                val = Some(t);
                             }
                             cx.schedule
                                 .cont_task(Instant::now() + CONT_PERIOD.cycles())
@@ -418,11 +434,55 @@ const APP: () = {
                         }
                         _ => {}
                     },
-                    State::Active(x) => {
-                        if let Event::Enter = e {
-                            *state = State::Select(*x)
+                    State::Active(Menu::ContMem) => match e {
+                        Event::Enter => *state = State::Select(Menu::ContMem),
+                        Event::Repeat => {
+                            if let Ok(t) = temp.object1_temperature() {
+                                // TODO: write value to AT24 flash
+                                val = Some(t);
+                            }
+                            cx.schedule
+                                .cont_task(Instant::now() + CONT_PERIOD.cycles())
+                                .ok();
                         }
-                    }
+                        _ => {}
+                    },
+                    State::Active(Menu::View) => match e {
+                        Event::Enter => {
+                            *state = State::Select(Menu::View);
+                            *pos = None;
+                        }
+                        Event::Button1 | Event::Button2 => {
+                            // TODO: read value from AT24 flash
+
+                            *pos = if let Some(p) = *pos {
+                                Some(p + 1)
+                            } else {
+                                Some(0)
+                            };
+                        }
+                        _ => {}
+                    },
+                    State::Active(Menu::Stream) => match e {
+                        Event::Enter => {
+                            *state = State::Select(Menu::Stream);
+                            *pos = None;
+                        }
+                        Event::Repeat => {
+                            // TODO: read value from AT24 flash
+
+                            *pos = if let Some(p) = *pos {
+                                Some(p + 1)
+                            } else {
+                                Some(0)
+                            };
+
+                            cx.schedule
+                                .cont_task(Instant::now() + CONT_PERIOD.cycles())
+                                .ok();
+                        }
+                        _ => {}
+                    },
                 }
             }
 
@@ -432,32 +492,26 @@ const APP: () = {
                     lcd.set_cursor_pos(0);
                     lcd.write_fmt(format_args!("{}", state)).unwrap();
                 }
-                State::Active(Menu::Shot)
-                | State::Active(Menu::ShotMem)
-                | State::Active(Menu::Cont)
-                | State::Active(Menu::ContMem) => {
-                    lcd.clear();
-                    lcd.set_cursor_pos(0);
-                    lcd.write_fmt(format_args!("{}", state)).unwrap();
-                    lcd.set_cursor_pos(40);
-                    if let Some(v) = t {
-                        match state {
-                            State::Active(Menu::ShotMem) | State::Active(Menu::ContMem) => {
-                                lcd.write_fmt(format_args!("{:.2} *", v)).unwrap();
-                                // TODO: write to AT24 flash
-                            }
-                            _ => {
-                                lcd.write_fmt(format_args!("{:.2}", v)).unwrap();
-                            }
-                        }
-                    } else {
-                        lcd.write_str("---").unwrap();
-                    }
-                }
                 State::Active(_) => {
                     lcd.clear();
                     lcd.set_cursor_pos(0);
-                    lcd.write_str("NOT YET").unwrap();
+                    match *pos {
+                        Some(p) => {
+                            lcd.write_fmt(format_args!("{}: {:04}", state, p)).unwrap();
+                        }
+                        None => {
+                            lcd.write_fmt(format_args!("{}", state)).unwrap();
+                        }
+                    }
+                    lcd.set_cursor_pos(40);
+                    match val {
+                        Some(v) => {
+                            lcd.write_fmt(format_args!("{:.2}", v)).unwrap();
+                        }
+                        None => {
+                            lcd.write_fmt(format_args!("---")).unwrap();
+                        }
+                    }
                 }
             }
         }
