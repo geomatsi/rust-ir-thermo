@@ -31,7 +31,7 @@ use hal::prelude::*;
 use hal::rcc::Config;
 use hal::stm32;
 use hal::stm32::I2C1;
-use hal::stm32::TIM3;
+use hal::stm32::{TIM3, TIM4};
 use hal::time::Hertz;
 use hal::timer::Timer;
 
@@ -67,13 +67,15 @@ impl fmt::Display for State {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let s = match *self {
             State::Select(Menu::Shot) | State::Active(Menu::Shot) => "Shot",
-            State::Select(Menu::ShotMem) | State::Active(Menu::ShotMem) => "ShotMem",
             State::Select(Menu::Cont) | State::Active(Menu::Cont) => "Cont",
-            State::Select(Menu::ContMem) | State::Active(Menu::ContMem) => "ContMem",
+            State::Select(Menu::ShotMem) => "ShotMem",
+            State::Active(Menu::ShotMem) => "SM",
+            State::Select(Menu::ContMem) => "ContMem",
+            State::Active(Menu::ContMem) => "CM",
             State::Select(Menu::View) => "View",
-            State::Active(Menu::View) => "V",
+            State::Active(Menu::View) => "VM",
             State::Select(Menu::Stream) => "Stream",
-            State::Active(Menu::Stream) => "S",
+            State::Active(Menu::Stream) => "SM",
         };
         write!(f, "{}", s)
     }
@@ -227,6 +229,7 @@ const APP: () = {
         temp_en: PA14<Output<PushPull>>,
         eeprom: EepromType<'static>,
         eeprom_wp: PB5<Output<PushPull>>,
+        eeprom_tmr: DelayTimer<Timer<TIM4>>,
     }
 
     #[init(schedule = [test_task, proc_task])]
@@ -330,6 +333,9 @@ const APP: () = {
 
         let eeprom = Eeprom24x::new_24xm01(i2c_bus.acquire(), eeprom24x::SlaveAddr::default());
         let mut eeprom_wp = gpiob.pb5.into_push_pull_output();
+        let tmr4 = cx.device.TIM4.timer(1.mhz(), &mut rcc);
+        let eeprom_tmr = DelayTimer { timer: tmr4 };
+
         eeprom_wp.set_high().unwrap();
 
         /* initial state */
@@ -367,6 +373,7 @@ const APP: () = {
             temp_en,
             eeprom,
             eeprom_wp,
+            eeprom_tmr,
         }
     }
 
@@ -432,9 +439,12 @@ const APP: () = {
         cx.resources.queue.enqueue(Event::Repeat).ok();
     }
 
-    #[task(schedule = [proc_task, cont_task], resources = [queue, state, pos, lcd, temp, temp_en, eeprom, eeprom_wp])]
+    #[task(schedule = [proc_task, cont_task], resources = [queue, state, pos, lcd, temp, temp_en, eeprom, eeprom_wp, eeprom_tmr])]
     fn proc_task(cx: proc_task::Context) {
         let mut val: Option<f32> = None;
+        let eeprom_tmr = cx.resources.eeprom_tmr;
+        let eeprom_wp = cx.resources.eeprom_wp;
+        let eeprom = cx.resources.eeprom;
         let state = cx.resources.state;
         let queue = cx.resources.queue;
         let temp = cx.resources.temp;
@@ -450,6 +460,7 @@ const APP: () = {
                         Event::Enter => {
                             queue.enqueue(Event::Repeat).ok();
                             *state = State::Active(*x);
+                            *pos = None;
                         }
                         _ => {}
                     },
@@ -457,16 +468,6 @@ const APP: () = {
                         Event::Enter => *state = State::Select(Menu::Shot),
                         Event::Button1 | Event::Button2 => {
                             if let Ok(t) = temp.object1_temperature() {
-                                val = Some(t);
-                            }
-                        }
-                        _ => {}
-                    },
-                    State::Active(Menu::ShotMem) => match e {
-                        Event::Enter => *state = State::Select(Menu::ShotMem),
-                        Event::Button1 | Event::Button2 => {
-                            if let Ok(t) = temp.object1_temperature() {
-                                // TODO: write value to AT24 flash
                                 val = Some(t);
                             }
                         }
@@ -484,13 +485,75 @@ const APP: () = {
                         }
                         _ => {}
                     },
-                    State::Active(Menu::ContMem) => match e {
-                        Event::Enter => *state = State::Select(Menu::ContMem),
-                        Event::Repeat => {
+                    State::Active(Menu::ShotMem) => match e {
+                        Event::Enter => {
+                            // store number of written measurements
+
+                            let p = match *pos {
+                                Some(x) => x,
+                                None => 0u32,
+                            };
+
+                            eeprom_wp.set_low().unwrap();
+                            eeprom.write_page(0, &p.to_le_bytes()).unwrap();
+                            eeprom_tmr.delay_ms(5);
+                            eeprom_wp.set_high().unwrap();
+
+                            *state = State::Select(Menu::ShotMem);
+                            *pos = None;
+                        }
+
+                        Event::Button1 | Event::Button2 => {
                             if let Ok(t) = temp.object1_temperature() {
-                                // TODO: write value to AT24 flash
+                                let p = match *pos {
+                                    Some(x) => x + 1,
+                                    None => 1u32,
+                                };
+
+                                eeprom_wp.set_low().unwrap();
+                                eeprom.write_page(p * 4, &t.to_le_bytes()).unwrap();
+                                eeprom_tmr.delay_ms(5);
+                                eeprom_wp.set_high().unwrap();
+
+                                *pos = Some(p);
                                 val = Some(t);
                             }
+                        }
+                        _ => {}
+                    },
+
+                    State::Active(Menu::ContMem) => match e {
+                        Event::Enter => {
+                            // store number of written measurements
+                            let p = match *pos {
+                                Some(p) => p,
+                                None => 0u32,
+                            };
+
+                            eeprom_wp.set_low().unwrap();
+                            eeprom.write_page(0x0, &p.to_le_bytes()).unwrap();
+                            eeprom_tmr.delay_ms(5);
+                            eeprom_wp.set_high().unwrap();
+
+                            *state = State::Select(Menu::ContMem);
+                            *pos = None;
+                        }
+                        Event::Repeat => {
+                            if let Ok(t) = temp.object1_temperature() {
+                                let p = match *pos {
+                                    Some(x) => x + 1,
+                                    None => 1u32,
+                                };
+
+                                eeprom_wp.set_low().unwrap();
+                                eeprom.write_page(p * 4, &t.to_le_bytes()).unwrap();
+                                eeprom_tmr.delay_ms(5);
+                                eeprom_wp.set_high().unwrap();
+
+                                *pos = Some(p);
+                                val = Some(t);
+                            }
+
                             cx.schedule
                                 .cont_task(Instant::now() + CONT_PERIOD.cycles())
                                 .ok();
@@ -503,13 +566,26 @@ const APP: () = {
                             *pos = None;
                         }
                         Event::Button1 | Event::Button2 => {
-                            // TODO: read value from AT24 flash
+                            let mut data: [u8; 4] = [0; 4];
+                            let max: u32;
 
-                            *pos = if let Some(p) = *pos {
-                                Some(p + 1)
-                            } else {
-                                Some(0)
+                            eeprom.read_data(0, &mut data).unwrap();
+                            max = u32::from_le_bytes(data);
+
+                            let p = match *pos {
+                                Some(x) => x + 1,
+                                None => 1u32,
                             };
+
+                            *pos = if p < max {
+                                Some(p)
+                            } else {
+                                // start over again from the start
+                                None
+                            };
+
+                            eeprom.read_data(4 * p, &mut data).unwrap();
+                            val = Some(f32::from_le_bytes(data));
                         }
                         _ => {}
                     },
@@ -519,13 +595,26 @@ const APP: () = {
                             *pos = None;
                         }
                         Event::Repeat => {
-                            // TODO: read value from AT24 flash
+                            let mut data: [u8; 4] = [0; 4];
+                            let max: u32;
 
-                            *pos = if let Some(p) = *pos {
-                                Some(p + 1)
-                            } else {
-                                Some(0)
+                            eeprom.read_data(0, &mut data).unwrap();
+                            max = u32::from_le_bytes(data);
+
+                            let p = match *pos {
+                                Some(x) => x + 1,
+                                None => 1u32,
                             };
+
+                            *pos = if p < max {
+                                Some(p)
+                            } else {
+                                // start over again from the start
+                                None
+                            };
+
+                            eeprom.read_data(4 * p, &mut data).unwrap();
+                            val = Some(f32::from_le_bytes(data));
 
                             cx.schedule
                                 .cont_task(Instant::now() + CONT_PERIOD.cycles())
@@ -547,7 +636,7 @@ const APP: () = {
                     lcd.set_cursor_pos(0);
                     match *pos {
                         Some(p) => {
-                            lcd.write_fmt(format_args!("{}: {:04}", state, p)).unwrap();
+                            lcd.write_fmt(format_args!("{}:{:05}", state, p)).unwrap();
                         }
                         None => {
                             lcd.write_fmt(format_args!("{}", state)).unwrap();
