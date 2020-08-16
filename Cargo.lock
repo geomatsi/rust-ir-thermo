@@ -314,6 +314,7 @@ dependencies = [
  "heapless",
  "mlx9061x",
  "nb 1.0.0",
+ "shared-bus",
  "stm32l1xx-hal",
  "ufmt",
  "ufmt-write",
@@ -342,6 +343,16 @@ name = "semver-parser"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
+
+[[package]]
+name = "shared-bus"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed792a53f339088822c0cc9d6ebfb950752016a288dc96ed3e302e9592f18ab0"
+dependencies = [
+ "cortex-m 0.5.10",
+ "embedded-hal",
+]
 
 [[package]]
 name = "stable_deref_trait"

@@ -11,6 +11,7 @@ use stm32l1xx_hal as hal;
 use hd44780_driver::bus::FourBitBus;
 use hd44780_driver::HD44780;
 
+use core::cell::RefCell;
 use core::fmt;
 use core::fmt::Write;
 use core::panic::PanicInfo;
@@ -23,8 +24,8 @@ use embedded_hal::digital::v2::ToggleableOutputPin;
 use embedded_hal::timer::CountDown;
 
 use hal::gpio::gpioa::{PA14, PA4, PA5, PA8};
-use hal::gpio::gpiob::{PB0, PB1, PB10, PB12, PB13, PB14, PB15, PB8, PB9};
-use hal::gpio::{Floating, Input, Output, PushPull};
+use hal::gpio::gpiob::{PB0, PB1, PB10, PB12, PB13, PB14, PB15, PB5, PB8, PB9};
+use hal::gpio::{Floating, Input, OpenDrain, Output, PushPull};
 use hal::i2c::I2c;
 use hal::prelude::*;
 use hal::rcc::Config;
@@ -37,12 +38,14 @@ use hal::timer::Timer;
 use heapless::consts::*;
 use heapless::spsc::Queue;
 
-use mlx9061x::Mlx9061x;
-use mlx9061x::SlaveAddr;
+use eeprom24x::addr_size::TwoBytes;
+use eeprom24x::page_size::B256;
+use eeprom24x::Eeprom24x;
 
 use mlx9061x::ic::Mlx90614;
+use mlx9061x::Mlx9061x;
+
 use nb::block;
-use stm32l1xx_hal::gpio::OpenDrain;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Menu {
@@ -178,7 +181,25 @@ type LcdType = HD44780<
     >,
 >;
 
-type TempType = Mlx9061x<I2c<I2C1, (PB8<Output<OpenDrain>>, PB9<Output<OpenDrain>>)>, Mlx90614>;
+type TypeI2cBus = I2c<I2C1, (PB8<Output<OpenDrain>>, PB9<Output<OpenDrain>>)>;
+type TempType<'a> = Mlx9061x<
+    shared_bus::BusProxy<'a, cm::interrupt::Mutex<RefCell<TypeI2cBus>>, TypeI2cBus>,
+    Mlx90614,
+>;
+type EepromType<'a> = Eeprom24x<
+    shared_bus::BusProxy<'a, cm::interrupt::Mutex<RefCell<TypeI2cBus>>, TypeI2cBus>,
+    B256,
+    TwoBytes,
+>;
+
+/* */
+
+/*
+ * Dark magic with shared_bus lifetimes: see discussion at https://github.com/Rahix/shared-bus/issues/4
+ */
+static mut I2C_BUS: Option<
+    shared_bus::BusManager<cortex_m::interrupt::Mutex<RefCell<TypeI2cBus>>, TypeI2cBus>,
+> = None;
 
 /* */
 
@@ -202,8 +223,10 @@ const APP: () = {
         queue: Queue<Event, U4>,
         state: State,
         lcd: LcdType,
-        temp: TempType,
+        temp: TempType<'static>,
         temp_en: PA14<Output<PushPull>>,
+        eeprom: EepromType<'static>,
+        eeprom_wp: PB5<Output<PushPull>>,
     }
 
     #[init(schedule = [test_task, proc_task])]
@@ -274,15 +297,40 @@ const APP: () = {
             cursor_blink: hd44780_driver::CursorBlink::Off,
         });
 
-        /* init IR temp sensor */
+        /*
+         * init I2C shared bus
+         * see discussion at https://github.com/Rahix/shared-bus/issues/4
+         */
 
         let scl = gpiob.pb8.into_open_drain_output();
         let sda = gpiob.pb9.into_open_drain_output();
-        let i2c = cx.device.I2C1.i2c((scl, sda), 100.khz(), &mut rcc);
 
-        let temp = Mlx9061x::new_mlx90614(i2c, SlaveAddr::default(), 5).unwrap();
+        let i2c_bus = {
+            let i2c = I2c::i2c1(cx.device.I2C1, (scl, sda), 100.khz(), &mut rcc);
+            let bus = shared_bus::BusManager::<
+                cortex_m::interrupt::Mutex<RefCell<TypeI2cBus>>,
+                TypeI2cBus,
+            >::new(i2c);
+
+            unsafe {
+                I2C_BUS = Some(bus);
+                // This reference is now &'static
+                &I2C_BUS.as_ref().unwrap()
+            }
+        };
+
+        /* init IR temp sensor */
+
+        let temp =
+            Mlx9061x::new_mlx90614(i2c_bus.acquire(), mlx9061x::SlaveAddr::default(), 5).unwrap();
         let mut temp_en = gpioa.pa14.into_push_pull_output();
         temp_en.set_low().unwrap();
+
+        /* init AT24 EEPROM */
+
+        let eeprom = Eeprom24x::new_24xm01(i2c_bus.acquire(), eeprom24x::SlaveAddr::default());
+        let mut eeprom_wp = gpiob.pb5.into_push_pull_output();
+        eeprom_wp.set_high().unwrap();
 
         /* initial state */
 
@@ -317,6 +365,8 @@ const APP: () = {
             button2,
             temp,
             temp_en,
+            eeprom,
+            eeprom_wp,
         }
     }
 
@@ -382,7 +432,7 @@ const APP: () = {
         cx.resources.queue.enqueue(Event::Repeat).ok();
     }
 
-    #[task(schedule = [proc_task, cont_task], resources = [queue, state, pos, lcd, temp, temp_en])]
+    #[task(schedule = [proc_task, cont_task], resources = [queue, state, pos, lcd, temp, temp_en, eeprom, eeprom_wp])]
     fn proc_task(cx: proc_task::Context) {
         let mut val: Option<f32> = None;
         let state = cx.resources.state;
