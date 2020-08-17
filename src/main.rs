@@ -441,7 +441,6 @@ const APP: () = {
 
     #[task(schedule = [proc_task, cont_task], resources = [queue, state, pos, lcd, temp, temp_en, eeprom, eeprom_wp, eeprom_tmr])]
     fn proc_task(cx: proc_task::Context) {
-        let mut val: Option<f32> = None;
         let eeprom_tmr = cx.resources.eeprom_tmr;
         let eeprom_wp = cx.resources.eeprom_wp;
         let eeprom = cx.resources.eeprom;
@@ -450,6 +449,8 @@ const APP: () = {
         let temp = cx.resources.temp;
         let lcd = cx.resources.lcd;
         let pos = cx.resources.pos;
+
+        let mut val: Option<f32> = None;
 
         while !queue.is_empty() {
             if let Some(e) = queue.dequeue() {
@@ -573,19 +574,13 @@ const APP: () = {
                             max = u32::from_le_bytes(data);
 
                             let p = match *pos {
-                                Some(x) => x + 1,
-                                None => 1u32,
-                            };
-
-                            *pos = if p < max {
-                                Some(p)
-                            } else {
-                                // start over again from the start
-                                None
+                                Some(x) if x < max => x + 1,
+                                _ => 1u32,
                             };
 
                             eeprom.read_data(4 * p, &mut data).unwrap();
                             val = Some(f32::from_le_bytes(data));
+                            *pos = Some(p);
                         }
                         _ => {}
                     },
@@ -602,19 +597,13 @@ const APP: () = {
                             max = u32::from_le_bytes(data);
 
                             let p = match *pos {
-                                Some(x) => x + 1,
-                                None => 1u32,
-                            };
-
-                            *pos = if p < max {
-                                Some(p)
-                            } else {
-                                // start over again from the start
-                                None
+                                Some(x) if x < max => x + 1,
+                                _ => 1u32,
                             };
 
                             eeprom.read_data(4 * p, &mut data).unwrap();
                             val = Some(f32::from_le_bytes(data));
+                            *pos = Some(p);
 
                             cx.schedule
                                 .cont_task(Instant::now() + CONT_PERIOD.cycles())
