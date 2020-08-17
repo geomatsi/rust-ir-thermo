@@ -467,12 +467,11 @@ const APP: () = {
                     },
                     State::Active(Menu::Shot) => match e {
                         Event::Enter => *state = State::Select(Menu::Shot),
-                        Event::Button1 | Event::Button2 => {
+                        Event::Button1 | Event::Button2 | Event::Repeat => {
                             if let Ok(t) = temp.object1_temperature() {
                                 val = Some(t);
                             }
                         }
-                        _ => {}
                     },
                     State::Active(Menu::Cont) => match e {
                         Event::Enter => *state = State::Select(Menu::Cont),
