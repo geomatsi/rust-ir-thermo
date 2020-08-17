@@ -2,38 +2,17 @@
 #![no_main]
 #![no_std]
 
-use cortex_m as cm;
-use rtic::app;
-use rtic::cyccnt::Instant;
-use rtic::cyccnt::U32Ext;
-use stm32l1xx_hal as hal;
-
-use hd44780_driver::bus::FourBitBus;
-use hd44780_driver::HD44780;
-
 use core::cell::RefCell;
-use core::fmt;
 use core::fmt::Write;
 use core::panic::PanicInfo;
-use embedded_hal::blocking::delay::DelayMs;
-use embedded_hal::blocking::delay::DelayUs;
+
 use embedded_hal::digital::v1_compat::OldOutputPin;
 use embedded_hal::digital::v2::InputPin;
 use embedded_hal::digital::v2::OutputPin;
 use embedded_hal::digital::v2::ToggleableOutputPin;
-use embedded_hal::timer::CountDown;
 
-use hal::gpio::gpioa::{PA14, PA4, PA5, PA8};
-use hal::gpio::gpiob::{PB0, PB1, PB10, PB12, PB13, PB14, PB15, PB5, PB8, PB9};
-use hal::gpio::{Floating, Input, OpenDrain, Output, PushPull};
-use hal::i2c::I2c;
-use hal::prelude::*;
-use hal::rcc::Config;
-use hal::stm32;
-use hal::stm32::I2C1;
-use hal::stm32::{TIM3, TIM4};
-use hal::time::Hertz;
-use hal::timer::Timer;
+use hd44780_driver::bus::FourBitBus;
+use hd44780_driver::HD44780;
 
 use heapless::consts::*;
 use heapless::spsc::Queue;
@@ -45,123 +24,25 @@ use eeprom24x::Eeprom24x;
 use mlx9061x::ic::Mlx90614;
 use mlx9061x::Mlx9061x;
 
-use nb::block;
+use rtic::app;
+use rtic::cyccnt::Instant;
+use rtic::cyccnt::U32Ext;
 
-#[derive(Clone, Copy, PartialEq)]
-pub enum Menu {
-    Shot,
-    ShotMem,
-    Cont,
-    ContMem,
-    View,
-    Stream,
-}
+use rust_ir_thermo::delay_timer::DelayTimer;
+use rust_ir_thermo::event::Event;
+use rust_ir_thermo::state::Menu;
+use rust_ir_thermo::state::State;
 
-#[derive(Clone, Copy, PartialEq)]
-pub enum State {
-    Select(Menu),
-    Active(Menu),
-}
-
-impl fmt::Display for State {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let s = match *self {
-            State::Select(Menu::Shot) | State::Active(Menu::Shot) => "Shot",
-            State::Select(Menu::Cont) | State::Active(Menu::Cont) => "Cont",
-            State::Select(Menu::ShotMem) => "ShotMem",
-            State::Active(Menu::ShotMem) => "SM",
-            State::Select(Menu::ContMem) => "ContMem",
-            State::Active(Menu::ContMem) => "CM",
-            State::Select(Menu::View) => "View",
-            State::Active(Menu::View) => "VM",
-            State::Select(Menu::Stream) => "Stream",
-            State::Active(Menu::Stream) => "SM",
-        };
-        write!(f, "{}", s)
-    }
-}
-
-impl State {
-    pub fn next(state: State) -> State {
-        match state {
-            State::Select(Menu::Shot) => State::Select(Menu::ShotMem),
-            State::Select(Menu::ShotMem) => State::Select(Menu::Cont),
-            State::Select(Menu::Cont) => State::Select(Menu::ContMem),
-            State::Select(Menu::ContMem) => State::Select(Menu::View),
-            State::Select(Menu::View) => State::Select(Menu::Stream),
-            State::Select(Menu::Stream) => State::Select(Menu::Shot),
-            _ => state,
-        }
-    }
-
-    pub fn prev(state: State) -> State {
-        match state {
-            State::Select(Menu::Shot) => State::Select(Menu::Stream),
-            State::Select(Menu::ShotMem) => State::Select(Menu::Shot),
-            State::Select(Menu::Cont) => State::Select(Menu::ShotMem),
-            State::Select(Menu::ContMem) => State::Select(Menu::Cont),
-            State::Select(Menu::View) => State::Select(Menu::ContMem),
-            State::Select(Menu::Stream) => State::Select(Menu::View),
-            _ => state,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum Event {
-    Button1,
-    Button2,
-    Enter,
-    Repeat,
-}
-
-pub struct DelayTimer<Timer>
-where
-    Timer: CountDown,
-    Timer::Time: From<Hertz>,
-{
-    timer: Timer,
-}
-
-impl<Timer> DelayTimer<Timer>
-where
-    Timer: CountDown,
-    Timer::Time: From<Hertz>,
-{
-    pub fn new(timer: Timer) -> Self {
-        Self { timer }
-    }
-}
-
-impl<Timer> DelayMs<u8> for DelayTimer<Timer>
-where
-    Timer: CountDown,
-    Timer::Time: From<Hertz>,
-{
-    fn delay_ms(&mut self, ms: u8) {
-        if ms == 0 {
-            return;
-        }
-
-        self.timer.start((1000u32 / ms as u32).hz());
-        block!(self.timer.wait()).unwrap();
-    }
-}
-
-impl<Timer> DelayUs<u16> for DelayTimer<Timer>
-where
-    Timer: CountDown,
-    Timer::Time: From<Hertz>,
-{
-    fn delay_us(&mut self, us: u16) {
-        if us == 0 {
-            return;
-        }
-
-        self.timer.start((1000000u32 / us as u32).hz());
-        block!(self.timer.wait()).unwrap();
-    }
-}
+use stm32l1xx_hal::gpio::gpioa::{PA14, PA4, PA5, PA8};
+use stm32l1xx_hal::gpio::gpiob::{PB0, PB1, PB10, PB12, PB13, PB14, PB15, PB5, PB8, PB9};
+use stm32l1xx_hal::gpio::{Floating, Input, OpenDrain, Output, PushPull};
+use stm32l1xx_hal::i2c::I2c;
+use stm32l1xx_hal::prelude::*;
+use stm32l1xx_hal::rcc::Config;
+use stm32l1xx_hal::stm32;
+use stm32l1xx_hal::stm32::I2C1;
+use stm32l1xx_hal::stm32::{TIM3, TIM4};
+use stm32l1xx_hal::timer::Timer;
 
 /* AT24CM01 => 131_072 8-bit words => 32_768 4-byte words
  * EEPROM layout:
@@ -193,11 +74,11 @@ type LcdType = HD44780<
 
 type TypeI2cBus = I2c<I2C1, (PB8<Output<OpenDrain>>, PB9<Output<OpenDrain>>)>;
 type TempType<'a> = Mlx9061x<
-    shared_bus::BusProxy<'a, cm::interrupt::Mutex<RefCell<TypeI2cBus>>, TypeI2cBus>,
+    shared_bus::BusProxy<'a, cortex_m::interrupt::Mutex<RefCell<TypeI2cBus>>, TypeI2cBus>,
     Mlx90614,
 >;
 type EepromType<'a> = Eeprom24x<
-    shared_bus::BusProxy<'a, cm::interrupt::Mutex<RefCell<TypeI2cBus>>, TypeI2cBus>,
+    shared_bus::BusProxy<'a, cortex_m::interrupt::Mutex<RefCell<TypeI2cBus>>, TypeI2cBus>,
     B256,
     TwoBytes,
 >;
@@ -229,7 +110,7 @@ const APP: () = {
         led2: PB1<Output<PushPull>>,
         button1: PA4<Input<Floating>>,
         button2: PA5<Input<Floating>>,
-        tmr2: hal::timer::Timer<stm32::TIM2>,
+        tmr2: Timer<stm32::TIM2>,
         queue: Queue<Event, U4>,
         state: State,
         lcd: LcdType,
@@ -272,7 +153,7 @@ const APP: () = {
         /* init LCD */
 
         let tmr3 = cx.device.TIM3.timer(1.mhz(), &mut rcc);
-        let delay = DelayTimer { timer: tmr3 };
+        let delay = DelayTimer::new(tmr3);
 
         let mut vo = gpiob.pb6.into_push_pull_output();
         let mut v5 = gpiob.pb7.into_push_pull_output();
@@ -335,6 +216,7 @@ const APP: () = {
         let temp =
             Mlx9061x::new_mlx90614(i2c_bus.acquire(), mlx9061x::SlaveAddr::default(), 5).unwrap();
         let mut temp_en = gpioa.pa14.into_push_pull_output();
+
         temp_en.set_low().unwrap();
 
         /* init AT24 EEPROM */
@@ -342,7 +224,7 @@ const APP: () = {
         let eeprom = Eeprom24x::new_24xm01(i2c_bus.acquire(), eeprom24x::SlaveAddr::default());
         let mut eeprom_wp = gpiob.pb5.into_push_pull_output();
         let tmr4 = cx.device.TIM4.timer(1.mhz(), &mut rcc);
-        let eeprom_tmr = DelayTimer { timer: tmr4 };
+        let eeprom_tmr = DelayTimer::new(tmr4);
 
         eeprom_wp.set_high().unwrap();
 
@@ -388,7 +270,7 @@ const APP: () = {
     #[idle]
     fn idle(_: idle::Context) -> ! {
         loop {
-            cm::asm::wfi();
+            cortex_m::asm::wfi();
         }
     }
 
