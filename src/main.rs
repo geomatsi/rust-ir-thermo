@@ -163,6 +163,14 @@ where
     }
 }
 
+/* AT24CM01 => 131_072 8-bit words => 32_768 4-byte words
+ * EEPROM layout:
+ *  - 1st word (address 0x0) to store the number of measurements
+ *  - 32_767 words to keep measurements
+ */
+
+const MAX_LEN: u32 = 32_767;
+
 /* HSI clock : 16MHz  */
 
 const CONT_PERIOD: u32 = 16_000_000; /* 1 sec */
@@ -488,7 +496,6 @@ const APP: () = {
                     State::Active(Menu::ShotMem) => match e {
                         Event::Enter => {
                             // store number of written measurements
-
                             let p = match *pos {
                                 Some(x) => x,
                                 None => 0u32,
@@ -506,8 +513,8 @@ const APP: () = {
                         Event::Button1 | Event::Button2 => {
                             if let Ok(t) = temp.object1_temperature() {
                                 let p = match *pos {
-                                    Some(x) => x + 1,
-                                    None => 1u32,
+                                    Some(x) if x < MAX_LEN => x + 1,
+                                    _ => 1u32,
                                 };
 
                                 eeprom_wp.set_low().unwrap();
@@ -526,12 +533,12 @@ const APP: () = {
                         Event::Enter => {
                             // store number of written measurements
                             let p = match *pos {
-                                Some(p) => p,
+                                Some(x) => x,
                                 None => 0u32,
                             };
 
                             eeprom_wp.set_low().unwrap();
-                            eeprom.write_page(0x0, &p.to_le_bytes()).unwrap();
+                            eeprom.write_page(0, &p.to_le_bytes()).unwrap();
                             eeprom_tmr.delay_ms(5);
                             eeprom_wp.set_high().unwrap();
 
@@ -541,8 +548,8 @@ const APP: () = {
                         Event::Repeat => {
                             if let Ok(t) = temp.object1_temperature() {
                                 let p = match *pos {
-                                    Some(x) => x + 1,
-                                    None => 1u32,
+                                    Some(x) if x < MAX_LEN => x + 1,
+                                    _ => 1u32,
                                 };
 
                                 eeprom_wp.set_low().unwrap();
