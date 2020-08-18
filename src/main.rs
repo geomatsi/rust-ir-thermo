@@ -327,7 +327,7 @@ const APP: () = {
         let led1 = cx.resources.led1;
         let led2 = cx.resources.led2;
 
-        if *state != State::Sleep {
+        if *state != State::Idle {
             led1.toggle().unwrap();
             led2.toggle().unwrap();
         }
@@ -360,7 +360,7 @@ const APP: () = {
         led1.set_high().unwrap();
         led2.set_high().unwrap();
 
-        *state = State::Sleep;
+        *state = State::Idle;
     }
 
     #[task(resources = [queue])]
@@ -388,7 +388,7 @@ const APP: () = {
         while !queue.is_empty() {
             if let Some(e) = queue.dequeue() {
                 match state {
-                    State::Sleep => {
+                    State::Idle => {
                         cx.schedule
                             .sleep_task(cx.scheduled + IDLE_PERIOD.cycles())
                             .unwrap();
@@ -585,7 +585,7 @@ const APP: () = {
                         }
                     }
                 }
-                State::Sleep => {}
+                State::Idle => {}
             }
         }
 
