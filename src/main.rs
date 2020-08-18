@@ -37,6 +37,7 @@ use stm32l1xx_hal::gpio::{Floating, Input, OpenDrain, Output, PushPull};
 use stm32l1xx_hal::i2c::I2c;
 use stm32l1xx_hal::prelude::*;
 use stm32l1xx_hal::rcc::Config;
+use stm32l1xx_hal::rcc::HSI_FREQ;
 use stm32l1xx_hal::stm32;
 use stm32l1xx_hal::stm32::I2C1;
 use stm32l1xx_hal::stm32::{TIM3, TIM4};
@@ -50,12 +51,12 @@ use stm32l1xx_hal::timer::Timer;
 
 const MAX_LEN: u32 = 32_767;
 
-/* HSI clock : 16MHz  */
+/* Firmware uses HSI clock */
 
-const IDLE_PERIOD: u32 = 160_000_000; /* 10 sec */
-const CONT_PERIOD: u32 = 16_000_000; /* 1 sec */
-const TEST_PERIOD: u32 = 8_000_000; /* 0.5 sec */
-const PROC_PERIOD: u32 = 4_000_000; /* 0.25 sec */
+const IDLE_PERIOD: u32 = HSI_FREQ * 10; /* 10 sec */
+const CONT_PERIOD: u32 = HSI_FREQ; /* 1 sec */
+const TEST_PERIOD: u32 = HSI_FREQ / 2; /* 0.5 sec */
+const PROC_PERIOD: u32 = HSI_FREQ / 4; /* 0.25 sec */
 
 /*  */
 
