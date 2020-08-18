@@ -14,6 +14,7 @@ pub enum Menu {
 pub enum State {
     Select(Menu),
     Active(Menu),
+    Sleep,
 }
 
 impl fmt::Display for State {
@@ -29,6 +30,7 @@ impl fmt::Display for State {
             State::Active(Menu::View) => "VM",
             State::Select(Menu::Stream) => "Stream",
             State::Active(Menu::Stream) => "SM",
+            State::Sleep => "Sleep",
         };
         write!(f, "{}", s)
     }

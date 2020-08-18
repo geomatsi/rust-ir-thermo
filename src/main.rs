@@ -32,7 +32,7 @@ use rust_ir_thermo::state::Menu;
 use rust_ir_thermo::state::State;
 
 use stm32l1xx_hal::gpio::gpioa::{PA14, PA4, PA5, PA8};
-use stm32l1xx_hal::gpio::gpiob::{PB0, PB1, PB10, PB12, PB13, PB14, PB15, PB5, PB8, PB9};
+use stm32l1xx_hal::gpio::gpiob::{PB0, PB1, PB10, PB12, PB13, PB14, PB15, PB5, PB7, PB8, PB9};
 use stm32l1xx_hal::gpio::{Floating, Input, OpenDrain, Output, PushPull};
 use stm32l1xx_hal::i2c::I2c;
 use stm32l1xx_hal::prelude::*;
@@ -52,6 +52,7 @@ const MAX_LEN: u32 = 32_767;
 
 /* HSI clock : 16MHz  */
 
+const IDLE_PERIOD: u32 = 160_000_000; /* 10 sec */
 const CONT_PERIOD: u32 = 16_000_000; /* 1 sec */
 const TEST_PERIOD: u32 = 8_000_000; /* 0.5 sec */
 const PROC_PERIOD: u32 = 4_000_000; /* 0.25 sec */
@@ -112,14 +113,15 @@ const APP: () = {
         queue: EventQueue,
         state: State,
         lcd: LcdType,
+        lcd_pwr: PB7<Output<PushPull>>,
         temp: TempType<'static>,
-        temp_en: PA14<Output<PushPull>>,
+        temp_pwr: PA14<Output<PushPull>>,
         eeprom: EepromType<'static>,
         eeprom_wp: PB5<Output<PushPull>>,
         eeprom_tmr: DelayTimer<Timer<TIM4>>,
     }
 
-    #[init(schedule = [test_task, proc_task])]
+    #[init(schedule = [test_task, proc_task, sleep_task])]
     fn init(mut cx: init::Context) -> init::LateResources {
         /* init hardware */
 
@@ -154,8 +156,8 @@ const APP: () = {
         let delay = DelayTimer::new(tmr3);
 
         let mut vo = gpiob.pb6.into_push_pull_output();
-        let mut v5 = gpiob.pb7.into_push_pull_output();
         let mut rw = gpiob.pb11.into_push_pull_output();
+        let mut lcd_pwr = gpiob.pb7.into_push_pull_output();
 
         let en = gpioa.pa8.into_push_pull_output();
         let rs = gpiob.pb10.into_push_pull_output();
@@ -175,8 +177,8 @@ const APP: () = {
             delay,
         );
 
+        lcd_pwr.set_high().unwrap();
         vo.set_low().unwrap();
-        v5.set_high().unwrap();
         rw.set_low().unwrap();
 
         lcd.reset();
@@ -213,9 +215,9 @@ const APP: () = {
 
         let temp =
             Mlx9061x::new_mlx90614(i2c_bus.acquire(), mlx9061x::SlaveAddr::default(), 5).unwrap();
-        let mut temp_en = gpioa.pa14.into_push_pull_output();
+        let mut temp_pwr = gpioa.pa14.into_push_pull_output();
 
-        temp_en.set_low().unwrap();
+        temp_pwr.set_low().unwrap();
 
         /* init AT24 EEPROM */
 
@@ -244,6 +246,10 @@ const APP: () = {
             .test_task(Instant::now() + TEST_PERIOD.cycles())
             .unwrap();
 
+        cx.schedule
+            .sleep_task(Instant::now() + IDLE_PERIOD.cycles())
+            .unwrap();
+
         cx.schedule.proc_task(Instant::now()).unwrap();
 
         /* init late resources */
@@ -252,13 +258,14 @@ const APP: () = {
             state,
             queue,
             lcd,
+            lcd_pwr,
             led1,
             led2,
             tmr2,
             button1,
             button2,
             temp,
-            temp_en,
+            temp_pwr,
             eeprom,
             eeprom_wp,
             eeprom_tmr,
@@ -313,13 +320,46 @@ const APP: () = {
         cx.resources.tmr2.clear_irq();
     }
 
-    #[task(schedule = [test_task], resources = [led1, led2])]
+    #[task(schedule = [test_task], resources = [led1, led2, state])]
     fn test_task(cx: test_task::Context) {
-        cx.resources.led1.toggle().unwrap();
-        cx.resources.led2.toggle().unwrap();
+        let state = cx.resources.state;
+        let led1 = cx.resources.led1;
+        let led2 = cx.resources.led2;
+
+        if *state != State::Sleep {
+            led1.toggle().unwrap();
+            led2.toggle().unwrap();
+        }
+
         cx.schedule
             .test_task(cx.scheduled + TEST_PERIOD.cycles())
             .unwrap();
+    }
+
+    #[task(schedule = [sleep_task], resources = [queue, state, lcd_pwr, temp_pwr, led1, led2])]
+    fn sleep_task(cx: sleep_task::Context) {
+        let temp_pwr = cx.resources.temp_pwr;
+        let lcd_pwr = cx.resources.lcd_pwr;
+        let state = cx.resources.state;
+        let queue = cx.resources.queue;
+        let led1 = cx.resources.led1;
+        let led2 = cx.resources.led2;
+
+        if queue.get_stats() > 0 {
+            cx.schedule
+                .sleep_task(cx.scheduled + IDLE_PERIOD.cycles())
+                .unwrap();
+            queue.reset_stats();
+            return;
+        }
+
+        // enter idle mode: disable peripherals
+        temp_pwr.set_high().unwrap();
+        lcd_pwr.set_low().unwrap();
+        led1.set_high().unwrap();
+        led2.set_high().unwrap();
+
+        *state = State::Sleep;
     }
 
     #[task(resources = [queue])]
@@ -327,22 +367,39 @@ const APP: () = {
         cx.resources.queue.enqueue(Event::Repeat);
     }
 
-    #[task(schedule = [proc_task, cont_task], resources = [queue, state, pos, lcd, temp, temp_en, eeprom, eeprom_wp, eeprom_tmr])]
+    #[task(schedule = [proc_task, cont_task, sleep_task], resources = [queue, state, pos, led1, led2, lcd, lcd_pwr, temp, temp_pwr, eeprom, eeprom_wp, eeprom_tmr])]
     fn proc_task(cx: proc_task::Context) {
         let eeprom_tmr = cx.resources.eeprom_tmr;
         let eeprom_wp = cx.resources.eeprom_wp;
         let eeprom = cx.resources.eeprom;
         let state = cx.resources.state;
         let queue = cx.resources.queue;
+        let temp_pwr = cx.resources.temp_pwr;
         let temp = cx.resources.temp;
+        let lcd_pwr = cx.resources.lcd_pwr;
         let lcd = cx.resources.lcd;
         let pos = cx.resources.pos;
+        let led1 = cx.resources.led1;
+        let led2 = cx.resources.led2;
 
         let mut val: Option<f32> = None;
 
         while !queue.is_empty() {
             if let Some(e) = queue.dequeue() {
                 match state {
+                    State::Sleep => {
+                        cx.schedule
+                            .sleep_task(cx.scheduled + IDLE_PERIOD.cycles())
+                            .unwrap();
+                        *state = State::Select(Menu::Shot);
+                        queue.enqueue(Event::Repeat);
+
+                        // exit idle mode: re-enable peripherals
+                        temp_pwr.set_low().unwrap();
+                        lcd_pwr.set_high().unwrap();
+                        led1.set_high().unwrap();
+                        led2.set_low().unwrap();
+                    }
                     State::Select(x) => match e {
                         Event::Button1 => *state = State::next(*state),
                         Event::Button2 => *state = State::prev(*state),
@@ -527,6 +584,7 @@ const APP: () = {
                         }
                     }
                 }
+                State::Sleep => {}
             }
         }
 
