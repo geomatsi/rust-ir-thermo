@@ -14,9 +14,6 @@ use embedded_hal::digital::v2::ToggleableOutputPin;
 use hd44780_driver::bus::FourBitBus;
 use hd44780_driver::HD44780;
 
-use heapless::consts::*;
-use heapless::spsc::Queue;
-
 use eeprom24x::addr_size::TwoBytes;
 use eeprom24x::page_size::B256;
 use eeprom24x::Eeprom24x;
@@ -30,6 +27,7 @@ use rtic::cyccnt::U32Ext;
 
 use rust_ir_thermo::delay_timer::DelayTimer;
 use rust_ir_thermo::event::Event;
+use rust_ir_thermo::event::EventQueue;
 use rust_ir_thermo::state::Menu;
 use rust_ir_thermo::state::State;
 
@@ -111,7 +109,7 @@ const APP: () = {
         button1: PA4<Input<Floating>>,
         button2: PA5<Input<Floating>>,
         tmr2: Timer<stm32::TIM2>,
-        queue: Queue<Event, U4>,
+        queue: EventQueue,
         state: State,
         lcd: LcdType,
         temp: TempType<'static>,
@@ -238,7 +236,7 @@ const APP: () = {
 
         /* priority queue */
 
-        let queue = Queue(heapless::i::Queue::new());
+        let queue = EventQueue::new();
 
         /* schedule tasks */
 
@@ -281,11 +279,11 @@ const APP: () = {
         } else {
             match *cx.resources.cb1 {
                 x if 1 <= x && x <= 3 => {
-                    cx.resources.queue.enqueue(Event::Button1).ok();
+                    cx.resources.queue.enqueue(Event::Button1);
                     *cx.resources.cb1 = 0;
                 }
                 x if x > 3 => {
-                    cx.resources.queue.enqueue(Event::Enter).ok();
+                    cx.resources.queue.enqueue(Event::Enter);
                     *cx.resources.cb1 = 0;
                 }
                 _ => {
@@ -299,11 +297,11 @@ const APP: () = {
         } else {
             match *cx.resources.cb2 {
                 x if 1 <= x && x <= 3 => {
-                    cx.resources.queue.enqueue(Event::Button2).ok();
+                    cx.resources.queue.enqueue(Event::Button2);
                     *cx.resources.cb2 = 0;
                 }
                 x if x > 3 => {
-                    cx.resources.queue.enqueue(Event::Enter).ok();
+                    cx.resources.queue.enqueue(Event::Enter);
                     *cx.resources.cb2 = 0;
                 }
                 _ => {
@@ -326,7 +324,7 @@ const APP: () = {
 
     #[task(resources = [queue])]
     fn cont_task(cx: cont_task::Context) {
-        cx.resources.queue.enqueue(Event::Repeat).ok();
+        cx.resources.queue.enqueue(Event::Repeat);
     }
 
     #[task(schedule = [proc_task, cont_task], resources = [queue, state, pos, lcd, temp, temp_en, eeprom, eeprom_wp, eeprom_tmr])]
@@ -349,7 +347,7 @@ const APP: () = {
                         Event::Button1 => *state = State::next(*state),
                         Event::Button2 => *state = State::prev(*state),
                         Event::Enter => {
-                            queue.enqueue(Event::Repeat).ok();
+                            queue.enqueue(Event::Repeat);
                             *state = State::Active(*x);
                             *pos = None;
                         }
