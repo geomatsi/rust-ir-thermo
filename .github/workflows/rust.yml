@@ -1,0 +1,28 @@
+name: Rust
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        features:
+          - i2c_hw
+          - i2c_bb
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        target: thumbv7m-none-eabi
+        override: true
+    - name: build examples
+      run: cargo build --release --examples --no-default-features --features ${{ matrix.features }}
+    - name: build firmware 
+      run: cargo build --release --no-default-features --features ${{ matrix.features }}
+
