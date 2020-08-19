@@ -26,10 +26,7 @@ ufmt-write = "0.1.0"
 cortex-m-rtic = "0.5.3"
 heapless = "0.5.5"
 nb = "1.0.0"
-
-[dependencies.shared-bus]
-version= "0.1.4"
-features=["cortexm"]
+shared-bus-rtic = "0.2.2"
 
 #[dependencies.stm32l1xx-hal]
 #version = "0.1.0"

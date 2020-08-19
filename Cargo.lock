@@ -314,7 +314,7 @@ dependencies = [
  "heapless",
  "mlx9061x",
  "nb 1.0.0",
- "shared-bus",
+ "shared-bus-rtic",
  "stm32l1xx-hal",
  "ufmt",
  "ufmt-write",
@@ -345,13 +345,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
 
 [[package]]
-name = "shared-bus"
-version = "0.1.4"
+name = "shared-bus-rtic"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed792a53f339088822c0cc9d6ebfb950752016a288dc96ed3e302e9592f18ab0"
+checksum = "cb1899470d03c5728db375f63be8f2bbfb93d8c35ec932061f3b593434c2273b"
 dependencies = [
- "cortex-m 0.5.10",
  "embedded-hal",
+ "nb 1.0.0",
 ]
 
 [[package]]
