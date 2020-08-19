@@ -42,6 +42,7 @@ use stm32l1xx_hal::stm32;
 use stm32l1xx_hal::stm32::I2C1;
 use stm32l1xx_hal::stm32::{TIM3, TIM4};
 use stm32l1xx_hal::timer::Timer;
+use stm32l1xx_hal::watchdog::IndependedWatchdog;
 
 /* AT24CM01 => 131_072 8-bit words => 32_768 4-byte words
  * EEPROM layout:
@@ -55,6 +56,7 @@ const MAX_LEN: u32 = 32_767;
 
 const IDLE_PERIOD: u32 = HSI_FREQ * 10; /* 10 sec */
 const CONT_PERIOD: u32 = HSI_FREQ; /* 1 sec */
+const IWDG_PERIOD: u32 = HSI_FREQ / 2; /* 0.5 sec */
 const TEST_PERIOD: u32 = HSI_FREQ / 2; /* 0.5 sec */
 const PROC_PERIOD: u32 = HSI_FREQ / 4; /* 0.25 sec */
 
@@ -106,6 +108,7 @@ const APP: () = {
         pos: Option<u32>,
 
         // late resources
+        wdg: IndependedWatchdog,
         led1: PB0<Output<PushPull>>,
         led2: PB1<Output<PushPull>>,
         button1: PA4<Input<Floating>>,
@@ -122,13 +125,18 @@ const APP: () = {
         eeprom_tmr: DelayTimer<Timer<TIM4>>,
     }
 
-    #[init(schedule = [test_task, proc_task, sleep_task])]
+    #[init(schedule = [test_task, proc_task, sleep_task, wdg_task])]
     fn init(mut cx: init::Context) -> init::LateResources {
         /* init hardware */
 
         let mut rcc = cx.device.RCC.freeze(Config::hsi());
         let gpioa = cx.device.GPIOA.split();
         let gpiob = cx.device.GPIOB.split();
+
+        /* init watchdog */
+
+        let mut wdg = cx.device.IWDG.watchdog();
+        wdg.start(1000.ms());
 
         /* init buttons */
 
@@ -244,6 +252,10 @@ const APP: () = {
         /* schedule tasks */
 
         cx.schedule
+            .wdg_task(Instant::now() + IWDG_PERIOD.cycles())
+            .unwrap();
+
+        cx.schedule
             .test_task(Instant::now() + TEST_PERIOD.cycles())
             .unwrap();
 
@@ -256,6 +268,7 @@ const APP: () = {
         /* init late resources */
 
         init::LateResources {
+            wdg,
             state,
             queue,
             lcd,
@@ -334,6 +347,15 @@ const APP: () = {
 
         cx.schedule
             .test_task(cx.scheduled + TEST_PERIOD.cycles())
+            .unwrap();
+    }
+
+    #[task(schedule = [wdg_task], resources = [wdg])]
+    fn wdg_task(cx: wdg_task::Context) {
+        cx.resources.wdg.feed();
+
+        cx.schedule
+            .wdg_task(cx.scheduled + IWDG_PERIOD.cycles())
             .unwrap();
     }
 
