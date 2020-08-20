@@ -68,3 +68,7 @@ path = "examples/test_buttons.rs"
 [[example]]
 name = "test-rtic"
 path = "examples/test_rtic.rs"
+
+[profile.release]
+lto             = true
+opt-level	= 's'
