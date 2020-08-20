@@ -2,7 +2,6 @@
 #![no_main]
 #![no_std]
 
-use core::cell::RefCell;
 use core::fmt::Write;
 use core::panic::PanicInfo;
 
@@ -30,6 +29,8 @@ use rust_ir_thermo::event::Event;
 use rust_ir_thermo::event::EventQueue;
 use rust_ir_thermo::state::Menu;
 use rust_ir_thermo::state::State;
+
+use shared_bus_rtic::SharedBus;
 
 use stm32l1xx_hal::gpio::gpioa::{PA14, PA4, PA5, PA8};
 use stm32l1xx_hal::gpio::gpiob::{PB0, PB1, PB10, PB12, PB13, PB14, PB15, PB5, PB7, PB8, PB9};
@@ -75,24 +76,11 @@ type LcdType = HD44780<
 >;
 
 type TypeI2cBus = I2c<I2C1, (PB8<Output<OpenDrain>>, PB9<Output<OpenDrain>>)>;
-type TempType<'a> = Mlx9061x<
-    shared_bus::BusProxy<'a, cortex_m::interrupt::Mutex<RefCell<TypeI2cBus>>, TypeI2cBus>,
-    Mlx90614,
->;
-type EepromType<'a> = Eeprom24x<
-    shared_bus::BusProxy<'a, cortex_m::interrupt::Mutex<RefCell<TypeI2cBus>>, TypeI2cBus>,
-    B256,
-    TwoBytes,
->;
 
-/* */
-
-/*
- * Dark magic with shared_bus lifetimes: see discussion at https://github.com/Rahix/shared-bus/issues/4
- */
-static mut I2C_BUS: Option<
-    shared_bus::BusManager<cortex_m::interrupt::Mutex<RefCell<TypeI2cBus>>, TypeI2cBus>,
-> = None;
+pub struct I2cDev<TypeI2cBus: 'static> {
+    temp: Mlx9061x<SharedBus<TypeI2cBus>, Mlx90614>,
+    eeprom: Eeprom24x<SharedBus<TypeI2cBus>, B256, TwoBytes>,
+}
 
 /* */
 
@@ -117,10 +105,9 @@ const APP: () = {
         queue: EventQueue,
         state: State,
         lcd: LcdType,
+        i2c_bus: I2cDev<TypeI2cBus>,
         lcd_pwr: PB7<Output<PushPull>>,
-        temp: TempType<'static>,
         temp_pwr: PA14<Output<PushPull>>,
-        eeprom: EepromType<'static>,
         eeprom_wp: PB5<Output<PushPull>>,
         eeprom_tmr: DelayTimer<Timer<TIM4>>,
     }
@@ -198,39 +185,24 @@ const APP: () = {
             cursor_blink: hd44780_driver::CursorBlink::Off,
         });
 
-        /*
-         * init I2C shared bus
-         * see discussion at https://github.com/Rahix/shared-bus/issues/4
-         */
+        /* init I2C shared bus */
 
         let scl = gpiob.pb8.into_open_drain_output();
         let sda = gpiob.pb9.into_open_drain_output();
-
-        let i2c_bus = {
-            let i2c = I2c::i2c1(cx.device.I2C1, (scl, sda), 100.khz(), &mut rcc);
-            let bus = shared_bus::BusManager::<
-                cortex_m::interrupt::Mutex<RefCell<TypeI2cBus>>,
-                TypeI2cBus,
-            >::new(i2c);
-
-            unsafe {
-                I2C_BUS = Some(bus);
-                // This reference is now &'static
-                &I2C_BUS.as_ref().unwrap()
-            }
-        };
+        let i2c = I2c::i2c1(cx.device.I2C1, (scl, sda), 100.khz(), &mut rcc);
+        let manager = shared_bus_rtic::new!(i2c, TypeI2cBus);
 
         /* init IR temp sensor */
 
         let temp =
-            Mlx9061x::new_mlx90614(i2c_bus.acquire(), mlx9061x::SlaveAddr::default(), 5).unwrap();
+            Mlx9061x::new_mlx90614(manager.acquire(), mlx9061x::SlaveAddr::default(), 5).unwrap();
         let mut temp_pwr = gpioa.pa14.into_push_pull_output();
 
         temp_pwr.set_low().unwrap();
 
         /* init AT24 EEPROM */
 
-        let eeprom = Eeprom24x::new_24xm01(i2c_bus.acquire(), eeprom24x::SlaveAddr::default());
+        let eeprom = Eeprom24x::new_24xm01(manager.acquire(), eeprom24x::SlaveAddr::default());
         let mut eeprom_wp = gpiob.pb5.into_push_pull_output();
         let tmr4 = cx.device.TIM4.timer(1.mhz(), &mut rcc);
         let eeprom_tmr = DelayTimer::new(tmr4);
@@ -278,11 +250,10 @@ const APP: () = {
             tmr2,
             button1,
             button2,
-            temp,
             temp_pwr,
-            eeprom,
             eeprom_wp,
             eeprom_tmr,
+            i2c_bus: I2cDev { temp, eeprom },
         }
     }
 
@@ -390,20 +361,20 @@ const APP: () = {
         cx.resources.queue.enqueue(Event::Repeat);
     }
 
-    #[task(schedule = [proc_task, cont_task, sleep_task], resources = [queue, state, pos, led1, led2, lcd, lcd_pwr, temp, temp_pwr, eeprom, eeprom_wp, eeprom_tmr])]
+    #[task(schedule = [proc_task, cont_task, sleep_task], resources = [queue, state, pos, led1, led2, lcd, lcd_pwr, i2c_bus, temp_pwr, eeprom_wp, eeprom_tmr])]
     fn proc_task(cx: proc_task::Context) {
+        let eeprom = &mut cx.resources.i2c_bus.eeprom;
+        let temp = &mut cx.resources.i2c_bus.temp;
         let eeprom_tmr = cx.resources.eeprom_tmr;
         let eeprom_wp = cx.resources.eeprom_wp;
-        let eeprom = cx.resources.eeprom;
+        let temp_pwr = cx.resources.temp_pwr;
+        let lcd_pwr = cx.resources.lcd_pwr;
         let state = cx.resources.state;
         let queue = cx.resources.queue;
-        let temp_pwr = cx.resources.temp_pwr;
-        let temp = cx.resources.temp;
-        let lcd_pwr = cx.resources.lcd_pwr;
-        let lcd = cx.resources.lcd;
-        let pos = cx.resources.pos;
         let led1 = cx.resources.led1;
         let led2 = cx.resources.led2;
+        let lcd = cx.resources.lcd;
+        let pos = cx.resources.pos;
 
         let mut val: Option<f32> = None;
 
