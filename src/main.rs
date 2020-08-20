@@ -33,7 +33,8 @@ use rust_ir_thermo::state::State;
 use shared_bus_rtic::SharedBus;
 
 use stm32l1xx_hal::gpio::gpioa::{PA14, PA4, PA5, PA8};
-use stm32l1xx_hal::gpio::gpiob::{PB0, PB1, PB10, PB12, PB13, PB14, PB15, PB5, PB7, PB8, PB9};
+use stm32l1xx_hal::gpio::gpiob::{PB0, PB1, PB5, PB7, PB8, PB9};
+use stm32l1xx_hal::gpio::gpiob::{PB10, PB12, PB13, PB14, PB15};
 use stm32l1xx_hal::gpio::{Floating, Input, OpenDrain, Output, PushPull};
 use stm32l1xx_hal::i2c::I2c;
 use stm32l1xx_hal::prelude::*;
@@ -61,7 +62,7 @@ const IWDG_PERIOD: u32 = HSI_FREQ / 2; /* 0.5 sec */
 const TEST_PERIOD: u32 = HSI_FREQ / 2; /* 0.5 sec */
 const PROC_PERIOD: u32 = HSI_FREQ / 4; /* 0.25 sec */
 
-/*  */
+/* types */
 
 type LcdType = HD44780<
     DelayTimer<Timer<TIM3>>,
@@ -77,9 +78,36 @@ type LcdType = HD44780<
 
 type TypeI2cBus = I2c<I2C1, (PB8<Output<OpenDrain>>, PB9<Output<OpenDrain>>)>;
 
+/* device aggregates: multiple peripherals to control one device */
+
+pub struct I2cTemp<TypeI2cBus: 'static> {
+    i2c: Mlx9061x<SharedBus<TypeI2cBus>, Mlx90614>,
+    pwr: PA14<Output<PushPull>>,
+}
+
+pub struct I2cEeprom<TypeI2cBus: 'static> {
+    i2c: Eeprom24x<SharedBus<TypeI2cBus>, B256, TwoBytes>,
+    tmr: DelayTimer<Timer<TIM4>>,
+    wp: PB5<Output<PushPull>>,
+}
+
+pub struct LcdDev {
+    bus: LcdType,
+    pwr: PB7<Output<PushPull>>,
+}
+
+/*
+ * shared-bus-rtic aggregate: multiple peripherals on a single i2c bus
+ *
+ * According to shared-bus-rtic docs:
+ * Note that all of the drivers that use the same underlying bus **must** be stored within a single
+ * resource (e.g. as one larger `struct`) within the RTIC resources. This ensures that RTIC will
+ * prevent one driver from interrupting another while they are using the same underlying bus.
+ */
+
 pub struct I2cDev<TypeI2cBus: 'static> {
-    temp: Mlx9061x<SharedBus<TypeI2cBus>, Mlx90614>,
-    eeprom: Eeprom24x<SharedBus<TypeI2cBus>, B256, TwoBytes>,
+    temp: I2cTemp<TypeI2cBus>,
+    eeprom: I2cEeprom<TypeI2cBus>,
 }
 
 /* */
@@ -104,12 +132,8 @@ const APP: () = {
         tmr2: Timer<stm32::TIM2>,
         queue: EventQueue,
         state: State,
-        lcd: LcdType,
-        i2c_bus: I2cDev<TypeI2cBus>,
-        lcd_pwr: PB7<Output<PushPull>>,
-        temp_pwr: PA14<Output<PushPull>>,
-        eeprom_wp: PB5<Output<PushPull>>,
-        eeprom_tmr: DelayTimer<Timer<TIM4>>,
+        lcd_dev: LcdDev,
+        i2c_dev: I2cDev<TypeI2cBus>,
     }
 
     #[init(schedule = [test_task, proc_task, sleep_task, wdg_task])]
@@ -243,17 +267,26 @@ const APP: () = {
             wdg,
             state,
             queue,
-            lcd,
-            lcd_pwr,
             led1,
             led2,
             tmr2,
             button1,
             button2,
-            temp_pwr,
-            eeprom_wp,
-            eeprom_tmr,
-            i2c_bus: I2cDev { temp, eeprom },
+            lcd_dev: LcdDev {
+                bus: lcd,
+                pwr: lcd_pwr,
+            },
+            i2c_dev: I2cDev {
+                temp: I2cTemp {
+                    i2c: temp,
+                    pwr: temp_pwr,
+                },
+                eeprom: I2cEeprom {
+                    i2c: eeprom,
+                    tmr: eeprom_tmr,
+                    wp: eeprom_wp,
+                },
+            },
         }
     }
 
@@ -330,10 +363,10 @@ const APP: () = {
             .unwrap();
     }
 
-    #[task(schedule = [sleep_task], resources = [queue, state, lcd_pwr, temp_pwr, led1, led2])]
+    #[task(schedule = [sleep_task], resources = [queue, state, lcd_dev, i2c_dev, led1, led2])]
     fn sleep_task(cx: sleep_task::Context) {
-        let temp_pwr = cx.resources.temp_pwr;
-        let lcd_pwr = cx.resources.lcd_pwr;
+        let temp = &mut cx.resources.i2c_dev.temp;
+        let lcd = cx.resources.lcd_dev;
         let state = cx.resources.state;
         let queue = cx.resources.queue;
         let led1 = cx.resources.led1;
@@ -348,8 +381,8 @@ const APP: () = {
         }
 
         // enter idle mode: disable peripherals
-        temp_pwr.set_high().unwrap();
-        lcd_pwr.set_low().unwrap();
+        temp.pwr.set_high().unwrap();
+        lcd.pwr.set_low().unwrap();
         led1.set_high().unwrap();
         led2.set_high().unwrap();
 
@@ -361,19 +394,15 @@ const APP: () = {
         cx.resources.queue.enqueue(Event::Repeat);
     }
 
-    #[task(schedule = [proc_task, cont_task, sleep_task], resources = [queue, state, pos, led1, led2, lcd, lcd_pwr, i2c_bus, temp_pwr, eeprom_wp, eeprom_tmr])]
+    #[task(schedule = [proc_task, cont_task, sleep_task], resources = [queue, state, pos, led1, led2, lcd_dev, i2c_dev])]
     fn proc_task(cx: proc_task::Context) {
-        let eeprom = &mut cx.resources.i2c_bus.eeprom;
-        let temp = &mut cx.resources.i2c_bus.temp;
-        let eeprom_tmr = cx.resources.eeprom_tmr;
-        let eeprom_wp = cx.resources.eeprom_wp;
-        let temp_pwr = cx.resources.temp_pwr;
-        let lcd_pwr = cx.resources.lcd_pwr;
+        let eeprom = &mut cx.resources.i2c_dev.eeprom;
+        let temp = &mut cx.resources.i2c_dev.temp;
+        let lcd = cx.resources.lcd_dev;
         let state = cx.resources.state;
         let queue = cx.resources.queue;
         let led1 = cx.resources.led1;
         let led2 = cx.resources.led2;
-        let lcd = cx.resources.lcd;
         let pos = cx.resources.pos;
 
         let mut val: Option<f32> = None;
@@ -389,8 +418,8 @@ const APP: () = {
                         queue.enqueue(Event::Repeat);
 
                         // exit idle mode: re-enable peripherals
-                        temp_pwr.set_low().unwrap();
-                        lcd_pwr.set_high().unwrap();
+                        temp.pwr.set_low().unwrap();
+                        lcd.pwr.set_high().unwrap();
                         led1.set_high().unwrap();
                         led2.set_low().unwrap();
                     }
@@ -407,7 +436,7 @@ const APP: () = {
                     State::Active(Menu::Shot) => match e {
                         Event::Enter => *state = State::Select(Menu::Shot),
                         Event::Button1 | Event::Button2 | Event::Repeat => {
-                            if let Ok(t) = temp.object1_temperature() {
+                            if let Ok(t) = temp.i2c.object1_temperature() {
                                 val = Some(t);
                             }
                         }
@@ -415,7 +444,7 @@ const APP: () = {
                     State::Active(Menu::Cont) => match e {
                         Event::Enter => *state = State::Select(Menu::Cont),
                         Event::Repeat => {
-                            if let Ok(t) = temp.object1_temperature() {
+                            if let Ok(t) = temp.i2c.object1_temperature() {
                                 val = Some(t);
                             }
                             cx.schedule
@@ -432,26 +461,26 @@ const APP: () = {
                                 None => 0u32,
                             };
 
-                            eeprom_wp.set_low().unwrap();
-                            eeprom.write_page(0, &p.to_le_bytes()).unwrap();
-                            eeprom_tmr.delay_ms(5);
-                            eeprom_wp.set_high().unwrap();
+                            eeprom.wp.set_low().unwrap();
+                            eeprom.i2c.write_page(0, &p.to_le_bytes()).unwrap();
+                            eeprom.tmr.delay_ms(5);
+                            eeprom.wp.set_high().unwrap();
 
                             *state = State::Select(Menu::ShotMem);
                             *pos = None;
                         }
 
                         Event::Button1 | Event::Button2 => {
-                            if let Ok(t) = temp.object1_temperature() {
+                            if let Ok(t) = temp.i2c.object1_temperature() {
                                 let p = match *pos {
                                     Some(x) if x < MAX_LEN => x + 1,
                                     _ => 1u32,
                                 };
 
-                                eeprom_wp.set_low().unwrap();
-                                eeprom.write_page(p * 4, &t.to_le_bytes()).unwrap();
-                                eeprom_tmr.delay_ms(5);
-                                eeprom_wp.set_high().unwrap();
+                                eeprom.wp.set_low().unwrap();
+                                eeprom.i2c.write_page(p * 4, &t.to_le_bytes()).unwrap();
+                                eeprom.tmr.delay_ms(5);
+                                eeprom.wp.set_high().unwrap();
 
                                 *pos = Some(p);
                                 val = Some(t);
@@ -468,25 +497,25 @@ const APP: () = {
                                 None => 0u32,
                             };
 
-                            eeprom_wp.set_low().unwrap();
-                            eeprom.write_page(0, &p.to_le_bytes()).unwrap();
-                            eeprom_tmr.delay_ms(5);
-                            eeprom_wp.set_high().unwrap();
+                            eeprom.wp.set_low().unwrap();
+                            eeprom.i2c.write_page(0, &p.to_le_bytes()).unwrap();
+                            eeprom.tmr.delay_ms(5);
+                            eeprom.wp.set_high().unwrap();
 
                             *state = State::Select(Menu::ContMem);
                             *pos = None;
                         }
                         Event::Repeat => {
-                            if let Ok(t) = temp.object1_temperature() {
+                            if let Ok(t) = temp.i2c.object1_temperature() {
                                 let p = match *pos {
                                     Some(x) if x < MAX_LEN => x + 1,
                                     _ => 1u32,
                                 };
 
-                                eeprom_wp.set_low().unwrap();
-                                eeprom.write_page(p * 4, &t.to_le_bytes()).unwrap();
-                                eeprom_tmr.delay_ms(5);
-                                eeprom_wp.set_high().unwrap();
+                                eeprom.wp.set_low().unwrap();
+                                eeprom.i2c.write_page(p * 4, &t.to_le_bytes()).unwrap();
+                                eeprom.tmr.delay_ms(5);
+                                eeprom.wp.set_high().unwrap();
 
                                 *pos = Some(p);
                                 val = Some(t);
@@ -507,7 +536,7 @@ const APP: () = {
                             let mut data: [u8; 4] = [0; 4];
                             let max: u32;
 
-                            eeprom.read_data(0, &mut data).unwrap();
+                            eeprom.i2c.read_data(0, &mut data).unwrap();
                             max = u32::from_le_bytes(data);
 
                             let p = match *pos {
@@ -515,7 +544,7 @@ const APP: () = {
                                 _ => 1u32,
                             };
 
-                            eeprom.read_data(4 * p, &mut data).unwrap();
+                            eeprom.i2c.read_data(4 * p, &mut data).unwrap();
                             val = Some(f32::from_le_bytes(data));
                             *pos = Some(p);
                         }
@@ -530,7 +559,7 @@ const APP: () = {
                             let mut data: [u8; 4] = [0; 4];
                             let max: u32;
 
-                            eeprom.read_data(0, &mut data).unwrap();
+                            eeprom.i2c.read_data(0, &mut data).unwrap();
                             max = u32::from_le_bytes(data);
 
                             let p = match *pos {
@@ -538,7 +567,7 @@ const APP: () = {
                                 _ => 1u32,
                             };
 
-                            eeprom.read_data(4 * p, &mut data).unwrap();
+                            eeprom.i2c.read_data(4 * p, &mut data).unwrap();
                             val = Some(f32::from_le_bytes(data));
                             *pos = Some(p);
 
@@ -553,28 +582,30 @@ const APP: () = {
 
             match state {
                 State::Select(_) => {
-                    lcd.clear();
-                    lcd.set_cursor_pos(0);
-                    lcd.write_fmt(format_args!("{}", state)).unwrap();
+                    lcd.bus.clear();
+                    lcd.bus.set_cursor_pos(0);
+                    lcd.bus.write_fmt(format_args!("{}", state)).unwrap();
                 }
                 State::Active(_) => {
-                    lcd.clear();
-                    lcd.set_cursor_pos(0);
+                    lcd.bus.clear();
+                    lcd.bus.set_cursor_pos(0);
                     match *pos {
                         Some(p) => {
-                            lcd.write_fmt(format_args!("{}:{:05}", state, p)).unwrap();
+                            lcd.bus
+                                .write_fmt(format_args!("{}:{:05}", state, p))
+                                .unwrap();
                         }
                         None => {
-                            lcd.write_fmt(format_args!("{}", state)).unwrap();
+                            lcd.bus.write_fmt(format_args!("{}", state)).unwrap();
                         }
                     }
-                    lcd.set_cursor_pos(40);
+                    lcd.bus.set_cursor_pos(40);
                     match val {
                         Some(v) => {
-                            lcd.write_fmt(format_args!("{:.2}", v)).unwrap();
+                            lcd.bus.write_fmt(format_args!("{:.2}", v)).unwrap();
                         }
                         None => {
-                            lcd.write_fmt(format_args!("---")).unwrap();
+                            lcd.bus.write_fmt(format_args!("---")).unwrap();
                         }
                     }
                 }
