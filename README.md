@@ -1,6 +1,15 @@
 # Overview
 Rust firmware for IR thermometer based on STM32L151CBT6 and MLX90614.
 
+## Hardware
+Hardware diagram:
+
+![alt text](docs/hw.png)
+
+Notes
+* No JTAG/SWD: firmware loaded using STM32 serial bootloader
+* Both EEPROM (AT24) and IR sernsor (MLX90614) are connected to I2C1
+
 # Quick start guide
 ## Custom runner
 The board does not have JTAG or SWD connector. So it has to be programmed through UART using ST bootloader.
