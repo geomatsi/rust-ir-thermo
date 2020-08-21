@@ -10,6 +10,21 @@ Notes
 * No JTAG/SWD: firmware loaded using STM32 serial bootloader
 * Both EEPROM (AT24) and IR sernsor (MLX90614) are connected to I2C1
 
+## Firmware
+Firmware diagram:
+
+![alt text](docs/sw.png)
+
+Components
+* Firmware is based on [RTIC](https://crates.io/crates/cortex-m-rtic) framework
+* LCD driver [hd44780](https://crates.io/crates/hd44780-driver)
+* MLX90614 driver [mlx9061x](https://crates.io/crates/mlx9061x) 
+* AT24 EEPROM driver [eeprom24x](https://crates.io/crates/eeprom24x) 
+
+Notes
+* Currently __Idle__ state has nothing to do with MCU low power modes: LCD and MLX90614 are powered off, but MCU still runs on HSI
+* MLX90614 and AT24 drivers share I2C1 bus using [shared-bus-rtic](https://crates.io/crates/shared-bus-rtic) 
+
 # Quick start guide
 ## Custom runner
 The board does not have JTAG or SWD connector. So it has to be programmed through UART using ST bootloader.
