@@ -8,6 +8,7 @@ pub enum Menu {
     ContMem,
     View,
     Stream,
+    Battery,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -30,6 +31,7 @@ impl fmt::Display for State {
             State::Active(Menu::View) => "VM",
             State::Select(Menu::Stream) => "Stream",
             State::Active(Menu::Stream) => "SM",
+            State::Select(Menu::Battery) | State::Active(Menu::Battery) => "Battery",
             State::Idle => "Idle",
         };
         write!(f, "{}", s)
@@ -44,19 +46,21 @@ impl State {
             State::Select(Menu::Cont) => State::Select(Menu::ContMem),
             State::Select(Menu::ContMem) => State::Select(Menu::View),
             State::Select(Menu::View) => State::Select(Menu::Stream),
-            State::Select(Menu::Stream) => State::Select(Menu::Shot),
+            State::Select(Menu::Stream) => State::Select(Menu::Battery),
+            State::Select(Menu::Battery) => State::Select(Menu::Shot),
             _ => state,
         }
     }
 
     pub fn prev(state: State) -> State {
         match state {
-            State::Select(Menu::Shot) => State::Select(Menu::Stream),
+            State::Select(Menu::Shot) => State::Select(Menu::Battery),
             State::Select(Menu::ShotMem) => State::Select(Menu::Shot),
             State::Select(Menu::Cont) => State::Select(Menu::ShotMem),
             State::Select(Menu::ContMem) => State::Select(Menu::Cont),
             State::Select(Menu::View) => State::Select(Menu::ContMem),
             State::Select(Menu::Stream) => State::Select(Menu::View),
+            State::Select(Menu::Battery) => State::Select(Menu::Stream),
             _ => state,
         }
     }

@@ -32,10 +32,11 @@ use rust_ir_thermo::state::State;
 
 use shared_bus_rtic::SharedBus;
 
-use stm32l1xx_hal::gpio::gpioa::{PA14, PA4, PA5, PA8};
+use stm32l1xx_hal::adc::{Adc, Align, Precision, SampleTime, VRef};
+use stm32l1xx_hal::gpio::gpioa::{PA0, PA14, PA4, PA5, PA8};
 use stm32l1xx_hal::gpio::gpiob::{PB0, PB1, PB5, PB7, PB8, PB9};
 use stm32l1xx_hal::gpio::gpiob::{PB10, PB12, PB13, PB14, PB15};
-use stm32l1xx_hal::gpio::{Floating, Input, OpenDrain, Output, PushPull};
+use stm32l1xx_hal::gpio::{Analog, Floating, Input, OpenDrain, Output, PushPull};
 use stm32l1xx_hal::i2c::I2c;
 use stm32l1xx_hal::prelude::*;
 use stm32l1xx_hal::rcc::Config;
@@ -124,6 +125,9 @@ const APP: () = {
         pos: Option<u32>,
 
         // late resources
+        adc: Adc,
+        vref: VRef,
+        chan: PA0<Analog>,
         wdg: IndependedWatchdog,
         led1: PB0<Output<PushPull>>,
         led2: PB1<Output<PushPull>>,
@@ -143,6 +147,18 @@ const APP: () = {
         let mut rcc = cx.device.RCC.freeze(Config::hsi());
         let gpioa = cx.device.GPIOA.split();
         let gpiob = cx.device.GPIOB.split();
+
+        /* init adc */
+
+        let mut adc = cx.device.ADC.adc(&mut rcc);
+        let chan = gpioa.pa0.into_analog();
+        let mut vref = VRef::new();
+
+        adc.set_align(Align::Right);
+        adc.set_precision(Precision::B_12);
+        adc.set_sample_time(SampleTime::T_16);
+
+        vref.enable(&mut adc);
 
         /* init watchdog */
 
@@ -265,6 +281,9 @@ const APP: () = {
 
         init::LateResources {
             wdg,
+            adc,
+            chan,
+            vref,
             state,
             queue,
             led1,
@@ -394,7 +413,7 @@ const APP: () = {
         cx.resources.queue.enqueue(Event::Repeat);
     }
 
-    #[task(schedule = [proc_task, cont_task, sleep_task], resources = [queue, state, pos, led1, led2, lcd_dev, i2c_dev])]
+    #[task(schedule = [proc_task, cont_task, sleep_task], resources = [queue, state, adc, chan, vref, pos, led1, led2, lcd_dev, i2c_dev])]
     fn proc_task(cx: proc_task::Context) {
         let eeprom = &mut cx.resources.i2c_dev.eeprom;
         let temp = &mut cx.resources.i2c_dev.temp;
@@ -404,6 +423,9 @@ const APP: () = {
         let led1 = cx.resources.led1;
         let led2 = cx.resources.led2;
         let pos = cx.resources.pos;
+        let chan = cx.resources.chan;
+        let vref = cx.resources.vref;
+        let adc = cx.resources.adc;
 
         let mut val: Option<f32> = None;
 
@@ -576,6 +598,27 @@ const APP: () = {
                                 .ok();
                         }
                         _ => {}
+                    },
+                    State::Active(Menu::Battery) => match e {
+                        Event::Enter => *state = State::Select(Menu::Battery),
+                        Event::Repeat => {
+                            // first read: warm-up
+                            (adc.read(chan) as Result<u16, _>).ok();
+                            (adc.read(vref) as Result<u16, _>).ok();
+                        }
+                        Event::Button1 | Event::Button2 => {
+                            if let Ok(u) = adc.read(chan) as Result<u16, _> {
+                                if let Ok(v) = adc.read(vref) as Result<u16, _> {
+                                    let vrefcal = VRef::get_vrefcal() as f32;
+                                    // ADC is in 12-bit mode
+                                    let scale = 4095_f32;
+                                    // See TRM (RM0038): chapter 12.12
+                                    let vbatt: f32 = 3.0 * vrefcal * u as f32 / v as f32 / scale;
+                                    // Schematics: voltage divider
+                                    val = Some(vbatt * 2.0);
+                                }
+                            }
+                        }
                     },
                 }
             }
