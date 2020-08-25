@@ -484,6 +484,7 @@ const APP: () = {
                             };
 
                             eeprom.wp.set_low().unwrap();
+                            eeprom.tmr.delay_ms(2);
                             eeprom.i2c.write_page(0, &p.to_le_bytes()).unwrap();
                             eeprom.tmr.delay_ms(5);
                             eeprom.wp.set_high().unwrap();
@@ -500,6 +501,7 @@ const APP: () = {
                                 };
 
                                 eeprom.wp.set_low().unwrap();
+                                eeprom.tmr.delay_ms(2);
                                 eeprom.i2c.write_page(p * 4, &t.to_le_bytes()).unwrap();
                                 eeprom.tmr.delay_ms(5);
                                 eeprom.wp.set_high().unwrap();
@@ -520,6 +522,7 @@ const APP: () = {
                             };
 
                             eeprom.wp.set_low().unwrap();
+                            eeprom.tmr.delay_ms(2);
                             eeprom.i2c.write_page(0, &p.to_le_bytes()).unwrap();
                             eeprom.tmr.delay_ms(5);
                             eeprom.wp.set_high().unwrap();
@@ -535,6 +538,7 @@ const APP: () = {
                                 };
 
                                 eeprom.wp.set_low().unwrap();
+                                eeprom.tmr.delay_ms(2);
                                 eeprom.i2c.write_page(p * 4, &t.to_le_bytes()).unwrap();
                                 eeprom.tmr.delay_ms(5);
                                 eeprom.wp.set_high().unwrap();
