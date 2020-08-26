@@ -27,11 +27,16 @@ use rtic::cyccnt::U32Ext;
 use rust_ir_thermo::delay_timer::DelayTimer;
 use rust_ir_thermo::event::Event;
 use rust_ir_thermo::event::EventQueue;
+
+use rust_ir_thermo::logger::u_init;
 use rust_ir_thermo::state::Menu;
 use rust_ir_thermo::state::State;
+use rust_ir_thermo::u_println;
 
 use shared_bus_rtic::SharedBus;
 
+use core::f32::NAN;
+use core::u32::MAX;
 use stm32l1xx_hal::adc::{Adc, Align, Precision, SampleTime, VRef};
 use stm32l1xx_hal::gpio::gpioa::{PA0, PA14, PA4, PA5, PA8};
 use stm32l1xx_hal::gpio::gpiob::{PB0, PB1, PB5, PB7, PB8, PB9};
@@ -41,6 +46,8 @@ use stm32l1xx_hal::i2c::I2c;
 use stm32l1xx_hal::prelude::*;
 use stm32l1xx_hal::rcc::Config;
 use stm32l1xx_hal::rcc::HSI_FREQ;
+use stm32l1xx_hal::serial;
+use stm32l1xx_hal::serial::SerialExt;
 use stm32l1xx_hal::stm32;
 use stm32l1xx_hal::stm32::I2C1;
 use stm32l1xx_hal::stm32::{TIM3, TIM4};
@@ -151,6 +158,22 @@ const APP: () = {
         let mut rcc = cx.device.RCC.freeze(Config::hsi());
         let gpioa = cx.device.GPIOA.split();
         let gpiob = cx.device.GPIOB.split();
+
+        /* init serial logger */
+
+        let tx = gpioa.pa9;
+        let rx = gpioa.pa10;
+        let cfg = serial::Config {
+            baudrate: 115_200_u32.bps(),
+            wordlength: serial::WordLength::DataBits9,
+            parity: serial::Parity::ParityOdd,
+            stopbits: serial::StopBits::STOP1,
+        };
+
+        let serial = cx.device.USART1.usart((tx, rx), cfg, &mut rcc).unwrap();
+        let (tx, _) = serial.split();
+
+        u_init(tx);
 
         /* init adc */
 
@@ -616,6 +639,8 @@ const APP: () = {
                             eeprom.i2c.read_data(4 * p, &mut data).unwrap();
                             val = Some(f32::from_le_bytes(data));
                             *pos = Some(p);
+
+                            u_println!("{:05}:{:.2}", pos.unwrap_or(MAX), val.unwrap_or(NAN));
                         }
                         _ => {}
                     },
@@ -639,6 +664,8 @@ const APP: () = {
                             eeprom.i2c.read_data(4 * p, &mut data).unwrap();
                             val = Some(f32::from_le_bytes(data));
                             *pos = Some(p);
+
+                            u_println!("{:05}:{:.2}", pos.unwrap_or(MAX), val.unwrap_or(NAN));
 
                             cx.schedule
                                 .cont_task(Instant::now() + CONT_PERIOD.cycles())
@@ -715,6 +742,9 @@ const APP: () = {
 };
 
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {}
+fn panic(info: &PanicInfo) -> ! {
+    u_println!("{}", info);
+    loop {
+        cortex_m::asm::nop();
+    }
 }
