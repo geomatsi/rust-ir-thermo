@@ -54,13 +54,15 @@ use stm32l1xx_hal::watchdog::IndependedWatchdog;
  */
 
 const MAX_LEN: u32 = 32_767;
+const LOW_BATTERY: f32 = 2.5;
 
 /* Firmware uses HSI clock */
 
+const VBAT_PERIOD: u32 = HSI_FREQ * 20; /* 20 sec */
 const IDLE_PERIOD: u32 = HSI_FREQ * 10; /* 10 sec */
 const CONT_PERIOD: u32 = HSI_FREQ; /* 1 sec */
 const IWDG_PERIOD: u32 = HSI_FREQ / 2; /* 0.5 sec */
-const TEST_PERIOD: u32 = HSI_FREQ / 2; /* 0.5 sec */
+const BEAT_PERIOD: u32 = HSI_FREQ / 2; /* 0.5 sec */
 const PROC_PERIOD: u32 = HSI_FREQ / 4; /* 0.25 sec */
 
 /* types */
@@ -117,6 +119,8 @@ pub struct I2cDev<TypeI2cBus: 'static> {
 const APP: () = {
     struct Resources {
         // resources
+        #[init(false)]
+        low_battery: bool,
         #[init(0)]
         cb1: u8,
         #[init(0)]
@@ -129,8 +133,8 @@ const APP: () = {
         vref: VRef,
         chan: PA0<Analog>,
         wdg: IndependedWatchdog,
-        led1: PB0<Output<PushPull>>,
-        led2: PB1<Output<PushPull>>,
+        heartbeat_led: PB0<Output<PushPull>>,
+        low_vbat_led: PB1<Output<PushPull>>,
         button1: PA4<Input<Floating>>,
         button2: PA5<Input<Floating>>,
         tmr2: Timer<stm32::TIM2>,
@@ -140,7 +144,7 @@ const APP: () = {
         i2c_dev: I2cDev<TypeI2cBus>,
     }
 
-    #[init(schedule = [test_task, proc_task, sleep_task, wdg_task])]
+    #[init(schedule = [beat_task, proc_task, sleep_task, wdg_task, vbat_task])]
     fn init(mut cx: init::Context) -> init::LateResources {
         /* init hardware */
 
@@ -175,11 +179,11 @@ const APP: () = {
 
         /* init LEDs */
 
-        let mut led1 = gpiob.pb0.into_push_pull_output();
-        let mut led2 = gpiob.pb1.into_push_pull_output();
+        let mut heartbeat_led = gpiob.pb0.into_push_pull_output();
+        let mut low_vbat_led = gpiob.pb1.into_push_pull_output();
 
-        led1.set_high().unwrap();
-        led2.set_low().unwrap();
+        heartbeat_led.set_high().unwrap();
+        low_vbat_led.set_high().unwrap();
 
         /* enable monotonic timer */
 
@@ -268,7 +272,11 @@ const APP: () = {
             .unwrap();
 
         cx.schedule
-            .test_task(Instant::now() + TEST_PERIOD.cycles())
+            .beat_task(Instant::now() + BEAT_PERIOD.cycles())
+            .unwrap();
+
+        cx.schedule
+            .vbat_task(Instant::now() + VBAT_PERIOD.cycles())
             .unwrap();
 
         cx.schedule
@@ -286,8 +294,8 @@ const APP: () = {
             vref,
             state,
             queue,
-            led1,
-            led2,
+            heartbeat_led,
+            low_vbat_led,
             tmr2,
             button1,
             button2,
@@ -357,19 +365,60 @@ const APP: () = {
         cx.resources.tmr2.clear_irq();
     }
 
-    #[task(schedule = [test_task], resources = [led1, led2, state])]
-    fn test_task(cx: test_task::Context) {
+    #[task(schedule = [beat_task], resources = [state, heartbeat_led, low_battery, low_vbat_led])]
+    fn beat_task(cx: beat_task::Context) {
+        let low_battery = cx.resources.low_battery;
+        let green_led = cx.resources.heartbeat_led;
+        let red_led = cx.resources.low_vbat_led;
         let state = cx.resources.state;
-        let led1 = cx.resources.led1;
-        let led2 = cx.resources.led2;
 
         if *state != State::Idle {
-            led1.toggle().unwrap();
-            led2.toggle().unwrap();
+            green_led.toggle().unwrap();
+        }
+
+        if *low_battery {
+            red_led.toggle().unwrap();
         }
 
         cx.schedule
-            .test_task(cx.scheduled + TEST_PERIOD.cycles())
+            .beat_task(cx.scheduled + BEAT_PERIOD.cycles())
+            .unwrap();
+    }
+
+    #[task(schedule = [vbat_task], resources = [low_battery, low_vbat_led, adc, chan, vref])]
+    fn vbat_task(cx: vbat_task::Context) {
+        let low_battery = cx.resources.low_battery;
+        let red_led = cx.resources.low_vbat_led;
+        let chan = cx.resources.chan;
+        let vref = cx.resources.vref;
+        let adc = cx.resources.adc;
+
+        if let Ok(u) = adc.read(chan) as Result<u16, _> {
+            if let Ok(v) = adc.read(vref) as Result<u16, _> {
+                let vrefcal = VRef::get_vrefcal() as f32;
+                // ADC is in 12-bit mode
+                let scale = 4095_f32;
+                // See TRM (RM0038): chapter 12.12
+                let mut vbat: f32 = 3.0 * vrefcal * u as f32 / v as f32 / scale;
+                // Schematics: voltage divider
+                vbat *= 2.0;
+
+                match vbat {
+                    _ if vbat < LOW_BATTERY => {
+                        red_led.set_low().unwrap();
+                        *low_battery = true;
+                    }
+                    _ if vbat > LOW_BATTERY * 1.1 => {
+                        red_led.set_high().unwrap();
+                        *low_battery = false;
+                    }
+                    _ => { /* keep current behavior */ }
+                }
+            }
+        }
+
+        cx.schedule
+            .vbat_task(cx.scheduled + VBAT_PERIOD.cycles())
             .unwrap();
     }
 
@@ -382,14 +431,13 @@ const APP: () = {
             .unwrap();
     }
 
-    #[task(schedule = [sleep_task], resources = [queue, state, lcd_dev, i2c_dev, led1, led2])]
+    #[task(schedule = [sleep_task], resources = [queue, state, lcd_dev, i2c_dev, heartbeat_led])]
     fn sleep_task(cx: sleep_task::Context) {
         let temp = &mut cx.resources.i2c_dev.temp;
+        let green_led = cx.resources.heartbeat_led;
         let lcd = cx.resources.lcd_dev;
         let state = cx.resources.state;
         let queue = cx.resources.queue;
-        let led1 = cx.resources.led1;
-        let led2 = cx.resources.led2;
 
         if queue.get_stats() > 0 {
             cx.schedule
@@ -400,10 +448,9 @@ const APP: () = {
         }
 
         // enter idle mode: disable peripherals
+        green_led.set_high().unwrap();
         temp.pwr.set_high().unwrap();
         lcd.pwr.set_low().unwrap();
-        led1.set_high().unwrap();
-        led2.set_high().unwrap();
 
         *state = State::Idle;
     }
@@ -413,15 +460,13 @@ const APP: () = {
         cx.resources.queue.enqueue(Event::Repeat);
     }
 
-    #[task(schedule = [proc_task, cont_task, sleep_task], resources = [queue, state, adc, chan, vref, pos, led1, led2, lcd_dev, i2c_dev])]
+    #[task(schedule = [proc_task, cont_task, sleep_task], resources = [queue, state, adc, chan, vref, pos, lcd_dev, i2c_dev])]
     fn proc_task(cx: proc_task::Context) {
         let eeprom = &mut cx.resources.i2c_dev.eeprom;
         let temp = &mut cx.resources.i2c_dev.temp;
         let lcd = cx.resources.lcd_dev;
         let state = cx.resources.state;
         let queue = cx.resources.queue;
-        let led1 = cx.resources.led1;
-        let led2 = cx.resources.led2;
         let pos = cx.resources.pos;
         let chan = cx.resources.chan;
         let vref = cx.resources.vref;
@@ -442,8 +487,6 @@ const APP: () = {
                         // exit idle mode: re-enable peripherals
                         temp.pwr.set_low().unwrap();
                         lcd.pwr.set_high().unwrap();
-                        led1.set_high().unwrap();
-                        led2.set_low().unwrap();
                     }
                     State::Select(x) => match e {
                         Event::Button1 => *state = State::next(*state),
@@ -617,9 +660,9 @@ const APP: () = {
                                     // ADC is in 12-bit mode
                                     let scale = 4095_f32;
                                     // See TRM (RM0038): chapter 12.12
-                                    let vbatt: f32 = 3.0 * vrefcal * u as f32 / v as f32 / scale;
+                                    let vbat: f32 = 3.0 * vrefcal * u as f32 / v as f32 / scale;
                                     // Schematics: voltage divider
-                                    val = Some(vbatt * 2.0);
+                                    val = Some(vbat * 2.0);
                                 }
                             }
                         }
