@@ -134,6 +134,8 @@ const APP: () = {
         cb2: u8,
         #[init(None)]
         pos: Option<u32>,
+        #[init(None)]
+        max: Option<u32>,
 
         // late resources
         adc: Adc,
@@ -483,17 +485,18 @@ const APP: () = {
         cx.resources.queue.enqueue(Event::Repeat);
     }
 
-    #[task(schedule = [proc_task, cont_task, sleep_task], resources = [queue, state, adc, chan, vref, pos, lcd_dev, i2c_dev])]
+    #[task(schedule = [proc_task, cont_task, sleep_task], resources = [queue, state, adc, chan, vref, pos, max, lcd_dev, i2c_dev])]
     fn proc_task(cx: proc_task::Context) {
         let eeprom = &mut cx.resources.i2c_dev.eeprom;
         let temp = &mut cx.resources.i2c_dev.temp;
         let lcd = cx.resources.lcd_dev;
         let state = cx.resources.state;
         let queue = cx.resources.queue;
-        let pos = cx.resources.pos;
         let chan = cx.resources.chan;
         let vref = cx.resources.vref;
         let adc = cx.resources.adc;
+        let pos = cx.resources.pos;
+        let max = cx.resources.max;
 
         let mut val: Option<f32> = None;
 
@@ -518,6 +521,7 @@ const APP: () = {
                             queue.enqueue(Event::Repeat);
                             *state = State::Active(*x);
                             *pos = None;
+                            *max = None;
                         }
                         _ => {}
                     },
@@ -623,16 +627,22 @@ const APP: () = {
                         Event::Enter => {
                             *state = State::Select(Menu::View);
                             *pos = None;
+                            *max = None;
                         }
                         Event::Button1 | Event::Button2 => {
                             let mut data: [u8; 4] = [0; 4];
-                            let max: u32;
 
-                            eeprom.i2c.read_data(0, &mut data).unwrap();
-                            max = u32::from_le_bytes(data);
+                            let m = match *max {
+                                None => {
+                                    eeprom.i2c.read_data(0, &mut data).unwrap();
+                                    eeprom.tmr.delay_ms(5);
+                                    u32::from_le_bytes(data)
+                                }
+                                Some(x) => x,
+                            };
 
                             let p = match *pos {
-                                Some(x) if x < max => x + 1,
+                                Some(x) if x < m => x + 1,
                                 _ => 1u32,
                             };
 
@@ -648,16 +658,22 @@ const APP: () = {
                         Event::Enter => {
                             *state = State::Select(Menu::Stream);
                             *pos = None;
+                            *max = None;
                         }
                         Event::Repeat => {
                             let mut data: [u8; 4] = [0; 4];
-                            let max: u32;
 
-                            eeprom.i2c.read_data(0, &mut data).unwrap();
-                            max = u32::from_le_bytes(data);
+                            let m = match *max {
+                                None => {
+                                    eeprom.i2c.read_data(0, &mut data).unwrap();
+                                    eeprom.tmr.delay_ms(5);
+                                    u32::from_le_bytes(data)
+                                }
+                                Some(x) => x,
+                            };
 
                             let p = match *pos {
-                                Some(x) if x < max => x + 1,
+                                Some(x) if x < m => x + 1,
                                 _ => 1u32,
                             };
 
