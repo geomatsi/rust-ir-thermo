@@ -8,9 +8,9 @@ checksum = "d39da9b88ae1a81c03c9c082b8db83f1d0e93914126041962af61034ab44c4a5"
 
 [[package]]
 name = "aligned"
-version = "0.3.3"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b575d1c64159869041184f397bea2e9a5acf4584db5c6106cda2940f41bafa51"
+checksum = "c19796bd8d477f1a9d4ac2465b464a8b1359474f06a96bb3cda650b4fca309bf"
 dependencies = [
  "as-slice",
 ]
@@ -28,9 +28,9 @@ dependencies = [
 
 [[package]]
 name = "autocfg"
-version = "1.0.0"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8aac770f1885fd7e387acedd76065302551364496e46b3dd00860b2f8359b9d"
+checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
 
 [[package]]
 name = "bare-metal"
@@ -90,7 +90,7 @@ version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2be99930c99669a74d986f7fd2162085498b322e6daae8ef63a97cc9ac1dc73c"
 dependencies = [
- "aligned 0.3.3",
+ "aligned 0.3.4",
  "bare-metal",
  "bitfield",
  "volatile-register",
@@ -119,9 +119,9 @@ dependencies = [
 
 [[package]]
 name = "cortex-m-rtic"
-version = "0.5.3"
+version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04cd388b154c7e7d212c5af7541ee1f174f29ccb0c22e9117f8d13a5aad233b6"
+checksum = "9aed487d27f3ea7b0d14ea8cf0cc94b050b74d2da5b54bbd896699ddc90424fd"
 dependencies = [
  "cortex-m 0.6.3",
  "cortex-m-rt",
@@ -133,9 +133,9 @@ dependencies = [
 
 [[package]]
 name = "cortex-m-rtic-macros"
-version = "0.5.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29e29e01b3ec80d59bfd96aaf94d04008bebfde3ab7016e12bfbd6c0b466d22a"
+checksum = "b79c949501157a9806d21e459742fb7d895c410628774cdfb02ea4ae349dc52a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -191,9 +191,9 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
-version = "0.8.1"
+version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34f595585f103464d8d2f6e9864682d74c1601fed5e07d62b1c9058dba8246fb"
+checksum = "e91b62f79061a0bc2e046024cb7ba44b08419ed238ecbd9adbd787434b9e8c25"
 dependencies = [
  "autocfg",
 ]
@@ -221,9 +221,9 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "1.5.0"
+version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b88cd59ee5f71fea89a62248fc8f387d44400cefe05ef548466d61ced9029a7"
+checksum = "86b45e59b16c76b11bf9738fd5d38879d3bd28ad292d7b313608becb17ae2df9"
 dependencies = [
  "autocfg",
  "hashbrown",
@@ -375,7 +375,7 @@ dependencies = [
 [[package]]
 name = "stm32l1xx-hal"
 version = "0.1.0"
-source = "git+https://github.com/geomatsi/stm32l1xx-hal?branch=integ#e3a3a1026e5128c1d9b70a05650aa93fcf5c55f8"
+source = "git+https://github.com/geomatsi/stm32l1xx-hal?branch=integ#17fa193ba68b74ca7e3253e6e1e7857691aa63b4"
 dependencies = [
  "bare-metal",
  "cast",
@@ -388,9 +388,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "1.0.36"
+version = "1.0.39"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cdb98bcb1f9d81d07b536179c269ea15999b5d14ea958196413869445bb5250"
+checksum = "891d8d6567fe7c7f8835a3a98af4208f3846fba258c1bc3c31d6e506239f11f9"
 dependencies = [
  "proc-macro2",
  "quote",
