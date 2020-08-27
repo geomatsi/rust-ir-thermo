@@ -540,7 +540,7 @@ const APP: () = {
                                 val = Some(t);
                             }
                             cx.schedule
-                                .cont_task(Instant::now() + CONT_PERIOD.cycles())
+                                .cont_task(cx.scheduled + CONT_PERIOD.cycles())
                                 .ok();
                         }
                         _ => {}
@@ -618,7 +618,7 @@ const APP: () = {
                             }
 
                             cx.schedule
-                                .cont_task(Instant::now() + CONT_PERIOD.cycles())
+                                .cont_task(cx.scheduled + CONT_PERIOD.cycles())
                                 .ok();
                         }
                         _ => {}
@@ -684,7 +684,7 @@ const APP: () = {
                             u_println!("{:05}:{:.2}", pos.unwrap_or(MAX), val.unwrap_or(NAN));
 
                             cx.schedule
-                                .cont_task(Instant::now() + CONT_PERIOD.cycles())
+                                .cont_task(cx.scheduled + CONT_PERIOD.cycles())
                                 .ok();
                         }
                         _ => {}
