@@ -101,6 +101,12 @@ pub struct I2cEeprom<TypeI2cBus: 'static> {
     wp: PB5<Output<PushPull>>,
 }
 
+pub struct AdcDev {
+    adc: Adc,
+    vref: VRef,
+    chan: PA0<Analog>,
+}
+
 pub struct LcdDev {
     bus: LcdType,
     pwr: PB7<Output<PushPull>>,
@@ -138,9 +144,6 @@ const APP: () = {
         max: Option<u32>,
 
         // late resources
-        adc: Adc,
-        vref: VRef,
-        chan: PA0<Analog>,
         wdg: IndependedWatchdog,
         heartbeat_led: PB0<Output<PushPull>>,
         low_vbat_led: PB1<Output<PushPull>>,
@@ -149,6 +152,7 @@ const APP: () = {
         tmr2: Timer<stm32::TIM2>,
         queue: EventQueue,
         state: State,
+        adc_dev: AdcDev,
         lcd_dev: LcdDev,
         i2c_dev: I2cDev<TypeI2cBus>,
     }
@@ -314,9 +318,6 @@ const APP: () = {
 
         init::LateResources {
             wdg,
-            adc,
-            chan,
-            vref,
             state,
             queue,
             heartbeat_led,
@@ -324,6 +325,7 @@ const APP: () = {
             tmr2,
             button1,
             button2,
+            adc_dev: AdcDev { adc, chan, vref },
             lcd_dev: LcdDev {
                 bus: lcd,
                 pwr: lcd_pwr,
@@ -410,16 +412,14 @@ const APP: () = {
             .unwrap();
     }
 
-    #[task(schedule = [vbat_task], resources = [low_battery, low_vbat_led, adc, chan, vref])]
+    #[task(schedule = [vbat_task], resources = [low_battery, low_vbat_led, adc_dev])]
     fn vbat_task(cx: vbat_task::Context) {
         let low_battery = cx.resources.low_battery;
         let red_led = cx.resources.low_vbat_led;
-        let chan = cx.resources.chan;
-        let vref = cx.resources.vref;
-        let adc = cx.resources.adc;
+        let adc_dev = cx.resources.adc_dev;
 
-        if let Ok(u) = adc.read(chan) as Result<u16, _> {
-            if let Ok(v) = adc.read(vref) as Result<u16, _> {
+        if let Ok(u) = adc_dev.adc.read(&mut adc_dev.chan) as Result<u16, _> {
+            if let Ok(v) = adc_dev.adc.read(&mut adc_dev.vref) as Result<u16, _> {
                 let vrefcal = VRef::get_vrefcal() as f32;
                 // ADC is in 12-bit mode
                 let scale = 4095_f32;
@@ -485,16 +485,14 @@ const APP: () = {
         cx.resources.queue.enqueue(Event::Repeat);
     }
 
-    #[task(schedule = [proc_task, cont_task, sleep_task], resources = [queue, state, adc, chan, vref, pos, max, lcd_dev, i2c_dev])]
+    #[task(schedule = [proc_task, cont_task, sleep_task], resources = [queue, state, pos, max, adc_dev, lcd_dev, i2c_dev])]
     fn proc_task(cx: proc_task::Context) {
         let eeprom = &mut cx.resources.i2c_dev.eeprom;
         let temp = &mut cx.resources.i2c_dev.temp;
-        let lcd = cx.resources.lcd_dev;
+        let lcd_dev = cx.resources.lcd_dev;
+        let adc_dev = cx.resources.adc_dev;
         let state = cx.resources.state;
         let queue = cx.resources.queue;
-        let chan = cx.resources.chan;
-        let vref = cx.resources.vref;
-        let adc = cx.resources.adc;
         let pos = cx.resources.pos;
         let max = cx.resources.max;
 
@@ -512,7 +510,7 @@ const APP: () = {
 
                         // exit idle mode: re-enable peripherals
                         temp.pwr.set_low().unwrap();
-                        lcd.pwr.set_high().unwrap();
+                        lcd_dev.pwr.set_high().unwrap();
                     }
                     State::Select(x) => match e {
                         Event::Button1 => *state = State::next(*state),
@@ -693,12 +691,13 @@ const APP: () = {
                         Event::Enter => *state = State::Select(Menu::Battery),
                         Event::Repeat => {
                             // first read: warm-up
-                            (adc.read(chan) as Result<u16, _>).ok();
-                            (adc.read(vref) as Result<u16, _>).ok();
+                            (adc_dev.adc.read(&mut adc_dev.chan) as Result<u16, _>).ok();
+                            (adc_dev.adc.read(&mut adc_dev.vref) as Result<u16, _>).ok();
                         }
                         Event::Button1 | Event::Button2 => {
-                            if let Ok(u) = adc.read(chan) as Result<u16, _> {
-                                if let Ok(v) = adc.read(vref) as Result<u16, _> {
+                            if let Ok(u) = adc_dev.adc.read(&mut adc_dev.chan) as Result<u16, _> {
+                                if let Ok(v) = adc_dev.adc.read(&mut adc_dev.vref) as Result<u16, _>
+                                {
                                     let vrefcal = VRef::get_vrefcal() as f32;
                                     // ADC is in 12-bit mode
                                     let scale = 4095_f32;
@@ -715,30 +714,31 @@ const APP: () = {
 
             match state {
                 State::Select(_) => {
-                    lcd.bus.clear();
-                    lcd.bus.set_cursor_pos(0);
-                    lcd.bus.write_fmt(format_args!("{}", state)).unwrap();
+                    lcd_dev.bus.clear();
+                    lcd_dev.bus.set_cursor_pos(0);
+                    lcd_dev.bus.write_fmt(format_args!("{}", state)).unwrap();
                 }
                 State::Active(_) => {
-                    lcd.bus.clear();
-                    lcd.bus.set_cursor_pos(0);
+                    lcd_dev.bus.clear();
+                    lcd_dev.bus.set_cursor_pos(0);
                     match *pos {
                         Some(p) => {
-                            lcd.bus
+                            lcd_dev
+                                .bus
                                 .write_fmt(format_args!("{}:{:05}", state, p))
                                 .unwrap();
                         }
                         None => {
-                            lcd.bus.write_fmt(format_args!("{}", state)).unwrap();
+                            lcd_dev.bus.write_fmt(format_args!("{}", state)).unwrap();
                         }
                     }
-                    lcd.bus.set_cursor_pos(40);
+                    lcd_dev.bus.set_cursor_pos(40);
                     match val {
                         Some(v) => {
-                            lcd.bus.write_fmt(format_args!("{:.2}", v)).unwrap();
+                            lcd_dev.bus.write_fmt(format_args!("{:.2}", v)).unwrap();
                         }
                         None => {
-                            lcd.bus.write_fmt(format_args!("---")).unwrap();
+                            lcd_dev.bus.write_fmt(format_args!("---")).unwrap();
                         }
                     }
                 }
