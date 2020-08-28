@@ -9,7 +9,6 @@ use bitbang_hal;
 use cortex_m as cm;
 use cortex_m_rt as rt;
 use embedded_hal::digital::v2::OutputPin;
-use mlx9061x;
 use stm32l1xx_hal as hal;
 
 use cm::interrupt::Mutex;

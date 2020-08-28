@@ -8,7 +8,6 @@ use bitbang_hal;
 
 use cortex_m as cm;
 use cortex_m_rt as rt;
-use eeprom24x;
 use embedded_hal::digital::v2::OutputPin;
 use stm32l1xx_hal as hal;
 

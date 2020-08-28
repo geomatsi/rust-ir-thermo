@@ -7,7 +7,6 @@ use cortex_m as cm;
 use cortex_m_rt as rt;
 use embedded_hal::digital::v1_compat::OldOutputPin;
 use embedded_hal::digital::v2::OutputPin;
-use hd44780_driver;
 use stm32l1xx_hal as hal;
 
 use cm::interrupt::Mutex;

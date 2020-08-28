@@ -55,11 +55,7 @@ const APP: () = {
 
         /* init late resources */
 
-        init::LateResources {
-            led1: led1,
-            led2: led2,
-            tmr2: tmr2,
-        }
+        init::LateResources { led1, led2, tmr2 }
     }
 
     #[idle]
